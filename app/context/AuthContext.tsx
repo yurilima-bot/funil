@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseClient } from '@/lib/supabase';
 
 // Domínio permitido
 const ALLOWED_DOMAIN = '@grupomegalife.com';
@@ -28,6 +28,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Limpa fragmentos OAuth (#access_token=...) caso o provedor volte com hash.
+    if (typeof window !== 'undefined' && window.location.hash) {
+      window.history.replaceState(
+        null,
+        '',
+        window.location.pathname + window.location.search
+      );
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
     // Verificar sessão ao carregar
     const getSession = async () => {
       try {
@@ -101,6 +116,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signUp = async (email: string, password: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase não configurado');
+
     // Validar domínio do email
     if (!email.endsWith(ALLOWED_DOMAIN)) {
       throw new Error('Email não permitido');
@@ -118,6 +136,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase não configurado');
+
     // Validar domínio do email
     if (!email.endsWith(ALLOWED_DOMAIN)) {
       throw new Error('Email não permitido');
@@ -134,6 +155,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase não configurado');
+
     const redirectTo =
       typeof window === 'undefined'
         ? undefined
@@ -154,9 +178,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     await syncSessionCookies(null);
+
+    if (typeof window !== 'undefined' && window.location.hash) {
+      window.history.replaceState(
+        null,
+        '',
+        window.location.pathname + window.location.search
+      );
+    }
   };
 
   return (

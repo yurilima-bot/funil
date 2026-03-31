@@ -1,10 +1,12 @@
-import { supabase } from "./supabase";
+import { getSupabaseClient } from "./supabase";
 import { Funil, ChangelogEntry } from "@/types/funil";
 
 // ==================== FUNIS ====================
 
 export async function fetchFunis(): Promise<Funil[]> {
   try {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error("Supabase não configurado");
     const { data, error } = await supabase
       .from("funis")
       .select("*")
@@ -20,6 +22,8 @@ export async function fetchFunis(): Promise<Funil[]> {
 
 export async function createFunil(funil: Omit<Funil, "id">): Promise<Funil | null> {
   try {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error("Supabase não configurado");
     const { data, error } = await supabase
       .from("funis")
       .insert([
@@ -50,6 +54,8 @@ export async function createFunil(funil: Omit<Funil, "id">): Promise<Funil | nul
 
 export async function updateFunil(id: string, funil: Partial<Funil>): Promise<Funil | null> {
   try {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error("Supabase não configurado");
     const updateData: Record<string, unknown> = {};
 
     if (funil.codigo !== undefined) updateData.codigo = funil.codigo;
@@ -81,6 +87,8 @@ export async function updateFunil(id: string, funil: Partial<Funil>): Promise<Fu
 
 export async function deleteFunil(id: string): Promise<boolean> {
   try {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error("Supabase não configurado");
     const { error } = await supabase.from("funis").delete().eq("id", id);
 
     if (error) throw error;
@@ -111,6 +119,8 @@ function toISO8601(timestamp: string): string {
 
 export async function fetchChangelog(): Promise<ChangelogEntry[]> {
   try {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error("Supabase não configurado");
     const { data, error } = await supabase
       .from("changelog")
       .select("*")
@@ -126,6 +136,8 @@ export async function fetchChangelog(): Promise<ChangelogEntry[]> {
 
 export async function addChangelogEntry(entry: ChangelogEntry): Promise<boolean> {
   try {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error("Supabase não configurado");
     const { error } = await supabase.from("changelog").insert([
       {
         action: entry.action,
@@ -150,6 +162,8 @@ export async function addChangelogEntry(entry: ChangelogEntry): Promise<boolean>
 
 export async function clearChangelog(): Promise<boolean> {
   try {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error("Supabase não configurado");
     const { error } = await supabase.from("changelog").delete().gte("id", "00000000-0000-0000-0000-000000000000");
 
     if (error) throw error;
