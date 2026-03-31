@@ -162,17 +162,29 @@ export async function clearChangelog(): Promise<boolean> {
 
 // ==================== HELPERS ====================
 
+function toFunilTipo(value: unknown): Funil["tipo"] {
+  const v = value === null || value === undefined ? "" : String(value);
+  if (v === "" || v === "Oferta" || v === "Lead" || v === "Upsell") return v;
+  return "";
+}
+
+function toFunilStatus(value: unknown): Funil["status"] {
+  const v = value === null || value === undefined ? "" : String(value);
+  if (v === "" || v === "Ativo" || v === "Em teste" || v === "Pausado" || v === "Descartado") return v;
+  return "";
+}
+
 function transformFromDB(dbRecord: Record<string, unknown>): Funil {
   return {
     id: String(dbRecord.id),
     codigo: String(dbRecord.codigo),
-    tipo: String(dbRecord.tipo),
+    tipo: toFunilTipo(dbRecord.tipo),
     oferta: dbRecord.oferta === null || dbRecord.oferta === undefined ? "" : String(dbRecord.oferta),
     nome: String(dbRecord.nome),
     versao: dbRecord.versao === null || dbRecord.versao === undefined ? "" : String(dbRecord.versao),
     pais: String(dbRecord.pais),
     checkout: dbRecord.checkout === null || dbRecord.checkout === undefined ? "" : String(dbRecord.checkout),
-    status: String(dbRecord.status),
+    status: toFunilStatus(dbRecord.status),
     url: dbRecord.url === null || dbRecord.url === undefined ? "" : String(dbRecord.url),
     dataCriacao: dbRecord.data_criacao === null || dbRecord.data_criacao === undefined ? "" : String(dbRecord.data_criacao),
     descricao: dbRecord.descricao === null || dbRecord.descricao === undefined ? "" : String(dbRecord.descricao),
@@ -189,9 +201,9 @@ function transformChangelogFromDB(dbRecord: Record<string, unknown>): ChangelogE
       dbRecord.user_email === null || dbRecord.user_email === undefined
         ? null
         : String(dbRecord.user_email),
-    oldStatus: dbRecord.old_status === null || dbRecord.old_status === undefined ? null : String(dbRecord.old_status),
-    newStatus: dbRecord.new_status === null || dbRecord.new_status === undefined ? null : String(dbRecord.new_status),
-    fields: dbRecord.fields === null || dbRecord.fields === undefined ? null : String(dbRecord.fields),
+    oldStatus: dbRecord.old_status === null || dbRecord.old_status === undefined ? undefined : String(dbRecord.old_status),
+    newStatus: dbRecord.new_status === null || dbRecord.new_status === undefined ? undefined : String(dbRecord.new_status),
+    fields: dbRecord.fields === null || dbRecord.fields === undefined ? undefined : String(dbRecord.fields),
     descricao: dbRecord.descricao === null || dbRecord.descricao === undefined ? null : String(dbRecord.descricao),
   };
 }

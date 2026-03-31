@@ -18,13 +18,14 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  if ('clear' in body && body.clear) {
+  if ('clear' in body) {
     store.delete(ACCESS_COOKIE);
     store.delete(REFRESH_COOKIE);
     return Response.json({ ok: true });
   }
 
-  if (!body.access_token || !body.refresh_token) {
+  const { access_token, refresh_token } = body;
+  if (!access_token || !refresh_token) {
     return Response.json({ error: 'Missing tokens' }, { status: 400 });
   }
 
@@ -32,14 +33,14 @@ export async function POST(req: Request) {
   // Em dev (http), secure=false; em produção, secure=true.
   const isProd = process.env.NODE_ENV === 'production';
 
-  store.set(ACCESS_COOKIE, body.access_token, {
+  store.set(ACCESS_COOKIE, access_token, {
     httpOnly: true,
     secure: isProd,
     sameSite: 'lax',
     path: '/',
   });
 
-  store.set(REFRESH_COOKIE, body.refresh_token, {
+  store.set(REFRESH_COOKIE, refresh_token, {
     httpOnly: true,
     secure: isProd,
     sameSite: 'lax',
