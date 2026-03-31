@@ -39,3 +39,33 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# turbopack
+.turbo
+
+# logs
+logs
+*.log
+
+# local caches
+.cache/
+.swc/
+
+# OS / Editor
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+ehthumbs.db
+*.stackdump
+
+# VS Code / Cursor
+.vscode/
+.cursor/
+
+# Supabase local dev (CLI)
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+
+# npm
+.npmrc
