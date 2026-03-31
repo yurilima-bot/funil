@@ -14,13 +14,6 @@ export default function AuthPage() {
     // Depois do OAuth, a sessão volta em /auth. Assim que o contexto tiver usuário,
     // navegamos para a interface (/) automaticamente.
     if (!authLoading && user) {
-      if (typeof window !== 'undefined' && window.location.hash) {
-        window.history.replaceState(
-          null,
-          '',
-          window.location.pathname + window.location.search
-        );
-      }
       router.replace('/');
     }
   }, [authLoading, user, router]);

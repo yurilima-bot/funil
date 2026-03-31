@@ -34,9 +34,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Verificar sessão ao carregar
+    // Verificar sessão ao carregar (inclui troca de `?code=` do PKCE)
     const getSession = async () => {
       try {
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          const hasCode = url.searchParams.has('code');
+          if (hasCode) {
+            const { error } = await supabase.auth.exchangeCodeForSession(
+              window.location.href
+            );
+            if (error) {
+              console.error('Erro ao trocar code por sessão:', error);
+            }
+
+            // Remove code/state da URL após o exchange.
+            url.searchParams.delete('code');
+            url.searchParams.delete('state');
+            window.history.replaceState(null, '', url.pathname + url.search);
+          }
+        }
+
         const {
           data: { session },
         } = await supabase.auth.getSession();
@@ -51,15 +69,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error('Erro ao obter sessão:', error);
       } finally {
-        // Só limpamos o fragment (#...) depois do Supabase ter a chance de
-        // consumir a sessão do OAuth.
-        if (typeof window !== 'undefined' && window.location.hash) {
-          window.history.replaceState(
-            null,
-            '',
-            window.location.pathname + window.location.search
-          );
-        }
         setLoading(false);
       }
     };

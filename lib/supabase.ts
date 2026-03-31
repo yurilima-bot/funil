@@ -12,7 +12,14 @@ export function getSupabaseClient(): SupabaseClient | null {
   if (!supabaseUrl || !supabaseKey) return null;
 
   if (!_client) {
-    _client = createClient(supabaseUrl, supabaseKey);
+    _client = createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        flowType: "pkce",
+        detectSessionInUrl: true,
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    });
   }
 
   return _client;
