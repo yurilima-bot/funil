@@ -11,18 +11,6 @@ export default function AuthPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Evita deixar tokens OAuth no fragment (#...) na URL
-    // (ex.: /auth#access_token=...).
-    if (typeof window !== 'undefined' && window.location.hash) {
-      window.history.replaceState(
-        null,
-        '',
-        window.location.pathname + window.location.search
-      );
-    }
-  }, []);
-
-  useEffect(() => {
     // Depois do OAuth, a sessão volta em /auth. Assim que o contexto tiver usuário,
     // navegamos para a interface (/) automaticamente.
     if (!authLoading && user) {

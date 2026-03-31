@@ -28,15 +28,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Limpa fragmentos OAuth (#access_token=...) caso o provedor volte com hash.
-    if (typeof window !== 'undefined' && window.location.hash) {
-      window.history.replaceState(
-        null,
-        '',
-        window.location.pathname + window.location.search
-      );
-    }
-
     const supabase = getSupabaseClient();
     if (!supabase) {
       setLoading(false);
@@ -60,6 +51,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error('Erro ao obter sessão:', error);
       } finally {
+        // Só limpamos o fragment (#...) depois do Supabase ter a chance de
+        // consumir a sessão do OAuth.
+        if (typeof window !== 'undefined' && window.location.hash) {
+          window.history.replaceState(
+            null,
+            '',
+            window.location.pathname + window.location.search
+          );
+        }
         setLoading(false);
       }
     };
