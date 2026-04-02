@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { Funil, ChangelogEntry } from "@/types/funil";
 import { StatusBadge, TipoBadge } from "./badges";
 
@@ -21,6 +21,11 @@ interface FunisTablePageProps {
   onNew: (ctx?: "descartado") => void;
 }
 
+interface BDPageProps extends Omit<FunisTablePageProps, "page"> {
+  changelog?: ChangelogEntry[];
+  onOpenChangelog?: () => void;
+}
+
 function applyFilters(records: Funil[], f: Filters) {
   return records.filter((r) => {
     if (f.tipo && r.tipo !== f.tipo) return false;
@@ -33,16 +38,34 @@ function applyFilters(records: Funil[], f: Filters) {
   });
 }
 
-export function BDPage({ db, onEdit, onDelete, onNew }: Omit<FunisTablePageProps, "page">) {
+export function BDPage({
+  db,
+  changelog = [],
+  onOpenChangelog,
+  onEdit,
+  onDelete,
+  onNew,
+}: BDPageProps) {
   const [filters, setFilters] = useState<Filters>(defaultFilters());
 
   const ativo = db.filter((r) => r.status === "Ativo").length;
   const teste = db.filter((r) => r.status === "Em teste").length;
+  const pausado = db.filter((r) => r.status === "Pausado").length;
   const desc = db.filter((r) => r.status === "Descartado").length;
-  const leads = db.filter((r) => r.tipo === "Lead").length;
-  const ofertas = db.filter((r) => r.tipo === "Oferta").length;
+  const emOperacao = ativo + teste;
 
   const recs = applyFilters(db, filters);
+
+  const recentLogs = [...changelog]
+    .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
+    .slice(0, 6);
+
+  const actionLabel: Record<string, string> = {
+    create: "Cadastro",
+    edit: "Edição",
+    delete: "Exclusão",
+    status: "Status",
+  };
 
   function setChip(key: "tipo" | "status", val: string) {
     setFilters((f) => ({ ...f, [key]: val }));
@@ -61,79 +84,139 @@ export function BDPage({ db, onEdit, onDelete, onNew }: Omit<FunisTablePageProps
     { val: "Descartado", label: "Descartado" },
   ];
 
+  const hasFilters = Boolean(filters.tipo || filters.status || filters.search.trim());
+
   return (
     <>
       <div className="page-header">
         <div>
-          <div className="page-title">Base de Dados</div>
-          <div className="page-sub">Todos os funis cadastrados — fonte única de verdade</div>
+          <div className="page-title">Base de dados</div>
+          <div className="page-sub">
+            Visão geral da base e lista filtrável de funis
+          </div>
         </div>
         <button className="btn btn-primary" onClick={() => onNew()}>
-          + Novo Funil
+          + Novo funil
         </button>
       </div>
-      <div className="page-body">
-        <div className="stats-row" style={{ gridTemplateColumns: "repeat(4,1fr)" }}>
-          <div className="stat-card">
-            <div className="stat-label">Total</div>
-            <div className="stat-value stat-blue">{db.length}</div>
+      <div className="page-body bd-page-body">
+        <section className="bd-section bd-section-metrics" aria-labelledby="bd-metrics-heading">
+          <div className="bd-section-head">
+            <h2 id="bd-metrics-heading" className="bd-section-title">
+              Visão rápida
+            </h2>
+            <p className="bd-section-desc">
+              Indicadores da base inteira antes de aplicar filtros na tabela.
+            </p>
           </div>
-          <div className="stat-card">
-            <div className="stat-label">Ofertas</div>
-            <div className="stat-value stat-gray">{ofertas}</div>
+          <div className="bd-kpi-grid">
+            <div className="bd-kpi-tile">
+              <div className="bd-kpi-label">Total</div>
+              <div className="bd-kpi-value bd-kpi-value-accent">{db.length}</div>
+            </div>
+            <div className="bd-kpi-tile">
+              <div className="bd-kpi-label">Em operação</div>
+              <div className="bd-kpi-value bd-kpi-value-accent">{emOperacao}</div>
+              <div className="bd-kpi-hint">ativo + em teste</div>
+            </div>
+            <div className="bd-kpi-tile">
+              <div className="bd-kpi-label">Ativo</div>
+              <div className="bd-kpi-value bd-kpi-value-green">{ativo}</div>
+            </div>
+            <div className="bd-kpi-tile">
+              <div className="bd-kpi-label">Em teste</div>
+              <div className="bd-kpi-value bd-kpi-value-amber">{teste}</div>
+            </div>
+            <div className="bd-kpi-tile">
+              <div className="bd-kpi-label">Pausado</div>
+              <div className="bd-kpi-value bd-kpi-value-slate">{pausado}</div>
+            </div>
+            <div className="bd-kpi-tile">
+              <div className="bd-kpi-label">Descartado</div>
+              <div className="bd-kpi-value bd-kpi-value-red">{desc}</div>
+            </div>
           </div>
-          <div className="stat-card">
-            <div className="stat-label">Leads</div>
-            <div className="stat-value stat-blue">{leads}</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-label">Descartados</div>
-            <div className="stat-value stat-red">{desc}</div>
-          </div>
-        </div>
+        </section>
 
-        <div
-          className="toolbar"
-          style={{
-            margin: "0 0 0",
-            borderRadius: "10px 10px 0 0",
-            border: "1px solid var(--border)",
-          }}
-        >
-          {tipoChips.map((c) => (
-            <button
-              key={c.val}
-              className={`filter-chip ${filters.tipo === c.val ? "on" : ""}`}
-              onClick={() => setChip("tipo", c.val)}
-            >
-              {c.label}
-            </button>
-          ))}
-          {statusChips.map((c) => (
-            <button
-              key={c.val}
-              className={`filter-chip ${filters.status === c.val ? "on" : ""}`}
-              onClick={() => setChip("status", c.val)}
-            >
-              {c.label}
-            </button>
-          ))}
-          <div className="search-wrap">
-            <span className="search-icon">🔍</span>
-            <input
-              className="search-input"
-              type="text"
-              placeholder="Buscar código, nome..."
-              value={filters.search}
-              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-            />
-          </div>
-        </div>
+        <div className="bd-split">
+          <div className="bd-split-main">
+            <section className="bd-panel" aria-labelledby="bd-list-heading">
+              <div className="bd-panel-head">
+                <div>
+                  <h2 id="bd-list-heading" className="bd-panel-title">
+                    Lista de funis
+                  </h2>
+                  <p className="bd-panel-meta">
+                    Mostrando <strong>{recs.length}</strong> de <strong>{db.length}</strong> registros
+                    {hasFilters ? " com os filtros aplicados" : ""}
+                  </p>
+                </div>
+                {hasFilters ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setFilters(defaultFilters())}
+                  >
+                    Limpar filtros
+                  </button>
+                ) : null}
+              </div>
 
-        <div
-          className="table-wrap"
-          style={{ borderTop: "none", borderRadius: "0 0 10px 10px" }}
-        >
+              <div className="bd-toolbar">
+                <div className="bd-toolbar-inner">
+                  <div className="filter-group filter-group-grow">
+                    <span className="filter-group-label">Tipo</span>
+                    <div className="filter-group-chips">
+                      {tipoChips.map((c) => (
+                        <button
+                          key={c.val || "all"}
+                          type="button"
+                          className={`filter-chip ${filters.tipo === c.val ? "on" : ""}`}
+                          onClick={() => setChip("tipo", c.val)}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="filter-group filter-group-grow">
+                    <span className="filter-group-label">Status</span>
+                    <div className="filter-group-chips">
+                      {statusChips.map((c) => (
+                        <button
+                          key={c.val}
+                          type="button"
+                          className={`filter-chip ${filters.status === c.val ? "on" : ""}`}
+                          onClick={() => setChip("status", c.val)}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="bd-search-block">
+                    <label className="filter-group-label" htmlFor="bd-search-input">
+                      Buscar
+                    </label>
+                    <div className="search-wrap bd-search-wrap">
+                      <span className="search-icon" aria-hidden>
+                        🔍
+                      </span>
+                      <input
+                        id="bd-search-input"
+                        className="search-input bd-search-input"
+                        type="search"
+                        placeholder="Código, nome, oferta, país..."
+                        value={filters.search}
+                        onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+                        autoComplete="off"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="table-wrap bd-table-wrap">
           <table>
             <thead>
               <tr>
@@ -222,6 +305,44 @@ export function BDPage({ db, onEdit, onDelete, onNew }: Omit<FunisTablePageProps
               )}
             </tbody>
           </table>
+        </div>
+            </section>
+          </div>
+
+          <aside className="bd-aside" aria-label="Atividade recente">
+            <div className="bd-aside-head">
+              <div>
+                <div className="bd-aside-title">Atividade recente</div>
+                <p className="bd-aside-sub">Últimas mudanças na base</p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => onOpenChangelog?.()}
+              >
+                Ver tudo
+              </button>
+            </div>
+            {recentLogs.length === 0 ? (
+              <p className="bd-aside-empty">Nenhuma alteração registrada ainda.</p>
+            ) : (
+              <ul className="bd-aside-list">
+                {recentLogs.map((log, i) => (
+                  <li key={`${log.codigo}-${log.timestamp}-${i}`} className="bd-aside-item">
+                    <div className="bd-aside-item-title">
+                      {actionLabel[log.action] || log.action} — <strong>{log.codigo}</strong>
+                    </div>
+                    <div className="bd-aside-item-meta">
+                      {log.timestamp}
+                      {log.userEmail ? (
+                        <span className="bd-aside-user"> · {log.userEmail}</span>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
         </div>
       </div>
     </>

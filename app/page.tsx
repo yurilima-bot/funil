@@ -6,13 +6,11 @@ import { uid, formatDate } from "@/lib/utils";
 import { fetchFunis, createFunil, updateFunil, deleteFunil, fetchChangelog, addChangelogEntry } from "@/lib/db";
 import { useAuth } from "@/app/context/AuthContext";
 import { ProtectedRoute } from "@/app/components/ProtectedRoute";
-import Sidebar from "@/app/components/funis/Sidebar";
+import Sidebar, { type AppPage } from "@/app/components/funis/Sidebar";
 import FunilModal from "@/app/components/funis/FunilModal";
 import Toast from "@/app/components/toast";
 import ChangelogPage from "@/app/components/changelogpage";
 import { BDPage, AtivosPage, DescartadosPage } from "@/app/components/funispages";
-
-type Page = "bd" | "ativos" | "descartados" | "changelog";
 
 const EMPTY_FORM: Partial<Funil> = {
   codigo: "",
@@ -33,7 +31,7 @@ function FunisApp() {
   const { user, signOut } = useAuth();
   const [db, setDb] = useState<Funil[]>([]);
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
-  const [page, setPage] = useState<Page>("bd");
+  const [page, setPage] = useState<AppPage>("bd");
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -166,6 +164,7 @@ function FunisApp() {
           codigo: data.codigo,
           nome: data.nome,
           timestamp: now,
+          userEmail: user?.email,
           oldStatus: statusChanged ? old.status : undefined,
           newStatus: statusChanged ? data.status : undefined,
           fields: changedFields.join(", "),
@@ -193,6 +192,7 @@ function FunisApp() {
           codigo: data.codigo,
           nome: data.nome,
           timestamp: now,
+          userEmail: user?.email,
           descricao: `Tipo: ${data.tipo} · País: ${data.pais} · Status: ${data.status}`,
         };
         await addChangelogEntry(logEntry);
@@ -226,6 +226,7 @@ function FunisApp() {
         codigo: rec.codigo,
         nome: rec.nome,
         timestamp: formatDate(new Date()),
+        userEmail: user?.email,
         descricao: `Status anterior: ${rec.status}`,
       };
       await addChangelogEntry(logEntry);
@@ -300,6 +301,8 @@ function FunisApp() {
           {page === "bd" && (
             <BDPage
               db={db}
+              changelog={changelog}
+              onOpenChangelog={() => setPage("changelog")}
               onEdit={openEditModal}
               onDelete={deleteRecord}
               onNew={openCreateModal}

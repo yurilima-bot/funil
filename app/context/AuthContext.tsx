@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Session, User } from '@supabase/supabase-js';
+import { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { getSupabaseClient } from '@/lib/supabase';
 
 // Domínio permitido
@@ -47,8 +47,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (error) {
               console.error('Erro ao trocar code por sessão:', error);
             }
-
-            // Remove code/state da URL após o exchange.
             url.searchParams.delete('code');
             url.searchParams.delete('state');
             window.history.replaceState(null, '', url.pathname + url.search);
@@ -78,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Escutar mudanças de autenticação
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent, session: Session | null) => {
       setSession(session);
       setUser(session?.user || null);
 

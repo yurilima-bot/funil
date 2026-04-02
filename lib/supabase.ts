@@ -1,9 +1,10 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 
-let _client: SupabaseClient | null = null;
-
-export function getSupabaseClient(): SupabaseClient | null {
-  // Evita quebrar build/prerender no servidor quando as envs não estão disponíveis.
+/**
+ * Cliente no browser com PKCE. Sem `cookies` customizado: o @supabase/ssr usa
+ * `document.cookie` corretamente (parse/serialize) para o code verifier OAuth.
+ */
+export function getSupabaseClient() {
   if (typeof window === "undefined") return null;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -11,16 +12,5 @@ export function getSupabaseClient(): SupabaseClient | null {
 
   if (!supabaseUrl || !supabaseKey) return null;
 
-  if (!_client) {
-    _client = createClient(supabaseUrl, supabaseKey, {
-      auth: {
-        flowType: "pkce",
-        detectSessionInUrl: true,
-        persistSession: true,
-        autoRefreshToken: true,
-      },
-    });
-  }
-
-  return _client;
+  return createBrowserClient(supabaseUrl, supabaseKey);
 }

@@ -1,6 +1,7 @@
 "use client";
 
-type Page = "bd" | "ativos" | "descartados" | "changelog";
+export type AppPage = "bd" | "ativos" | "descartados" | "changelog";
+type Page = AppPage;
 
 interface SidebarProps {
   currentPage: Page;
