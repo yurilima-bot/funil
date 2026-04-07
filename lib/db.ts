@@ -39,6 +39,10 @@ export async function createFunil(funil: Omit<Funil, "id">): Promise<Funil | nul
           url: funil.url,
           data_criacao: funil.dataCriacao,
           descricao: funil.descricao,
+          // Campos opcionais do mapa (se existirem no banco)
+          next_ids: funil.nextIds ?? undefined,
+          pos_x: funil.posX ?? undefined,
+          pos_y: funil.posY ?? undefined,
         },
       ])
       .select()
@@ -69,6 +73,9 @@ export async function updateFunil(id: string, funil: Partial<Funil>): Promise<Fu
     if (funil.url !== undefined) updateData.url = funil.url;
     if (funil.dataCriacao !== undefined) updateData.data_criacao = funil.dataCriacao;
     if (funil.descricao !== undefined) updateData.descricao = funil.descricao;
+    if (funil.nextIds !== undefined) updateData.next_ids = funil.nextIds;
+    if (funil.posX !== undefined) updateData.pos_x = funil.posX;
+    if (funil.posY !== undefined) updateData.pos_y = funil.posY;
 
     const { data, error } = await supabase
       .from("funis")
@@ -189,6 +196,25 @@ function toFunilStatus(value: unknown): Funil["status"] {
 }
 
 function transformFromDB(dbRecord: Record<string, unknown>): Funil {
+  const nextIdsRaw = (dbRecord as Record<string, unknown>).next_ids;
+  const nextIds =
+    Array.isArray(nextIdsRaw) ? nextIdsRaw.map((x) => String(x)) : undefined;
+
+  const posXRaw = (dbRecord as Record<string, unknown>).pos_x;
+  const posYRaw = (dbRecord as Record<string, unknown>).pos_y;
+  const posX =
+    typeof posXRaw === "number"
+      ? posXRaw
+      : posXRaw === null || posXRaw === undefined || posXRaw === ""
+        ? undefined
+        : Number(posXRaw);
+  const posY =
+    typeof posYRaw === "number"
+      ? posYRaw
+      : posYRaw === null || posYRaw === undefined || posYRaw === ""
+        ? undefined
+        : Number(posYRaw);
+
   return {
     id: String(dbRecord.id),
     codigo: String(dbRecord.codigo),
@@ -202,6 +228,9 @@ function transformFromDB(dbRecord: Record<string, unknown>): Funil {
     url: dbRecord.url === null || dbRecord.url === undefined ? "" : String(dbRecord.url),
     dataCriacao: dbRecord.data_criacao === null || dbRecord.data_criacao === undefined ? "" : String(dbRecord.data_criacao),
     descricao: dbRecord.descricao === null || dbRecord.descricao === undefined ? "" : String(dbRecord.descricao),
+    nextIds,
+    posX: Number.isFinite(posX as number) ? (posX as number) : undefined,
+    posY: Number.isFinite(posY as number) ? (posY as number) : undefined,
   };
 }
 

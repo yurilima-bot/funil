@@ -1,13 +1,15 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Funil, ChangelogEntry } from "@/types/funil";
 import { uid, formatDate } from "@/lib/utils";
-import { fetchFunis, createFunil, updateFunil, deleteFunil, fetchChangelog, addChangelogEntry } from "@/lib/db";
+import { fetchFunis, createFunil, updateFunil, fetchChangelog, addChangelogEntry, deleteFunil } from "@/lib/db";
 import { useAuth } from "@/app/context/AuthContext";
 import { ProtectedRoute } from "@/app/components/ProtectedRoute";
 import Sidebar, { type AppPage } from "@/app/components/funis/Sidebar";
 import FunilModal from "@/app/components/funis/FunilModal";
+import DiscardConfirmModal from "@/app/components/DiscardConfirmModal";
+import PermanentDeleteConfirmModal from "@/app/components/PermanentDeleteConfirmModal";
 import Toast from "@/app/components/toast";
 import ChangelogPage from "@/app/components/changelogpage";
 import { BDPage, AtivosPage, DescartadosPage } from "@/app/components/funispages";
@@ -32,6 +34,7 @@ function FunisApp() {
   const [db, setDb] = useState<Funil[]>([]);
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const [page, setPage] = useState<AppPage>("bd");
+  const [ativosPresetTipo, setAtivosPresetTipo] = useState<string>("");
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -39,6 +42,19 @@ function FunisApp() {
   const [toast, setToast] = useState({ message: "", type: "" as "success" | "info" | "warn" | "" });
   const [loading, setLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [pendingPermanentIds, setPendingPermanentIds] = useState<string[] | null>(null);
+  const [permanentDeleteSubmitting, setPermanentDeleteSubmitting] = useState(false);
+
+  const pendingDeleteFunil = pendingDeleteId ? db.find((r) => r.id === pendingDeleteId) ?? null : null;
+
+  const pendingPermanentRecords = useMemo(() => {
+    if (!pendingPermanentIds?.length) return [];
+    return pendingPermanentIds
+      .map((id) => db.find((r) => r.id === id))
+      .filter((r): r is Funil => !!r);
+  }, [pendingPermanentIds, db]);
 
   // Load from Supabase on mount
   useEffect(() => {
@@ -115,8 +131,20 @@ function FunisApp() {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  async function saveRecord() {
-    const data = {
+  async function saveRecord(pauseLinkedFunilId?: string) {
+    let data: {
+      codigo: string;
+      tipo: string;
+      oferta: string;
+      nome: string;
+      versao: string;
+      pais: string;
+      checkout: string;
+      status: string;
+      url: string;
+      dataCriacao: string;
+      descricao: string;
+    } = {
       codigo: (form.codigo || "").trim().toUpperCase(),
       tipo: form.tipo || "",
       oferta: (form.oferta || "").trim().toUpperCase(),
@@ -130,12 +158,40 @@ function FunisApp() {
       descricao: (form.descricao || "").trim(),
     };
 
+    // Criação + "Sim, pausar vínculo": o novo step passa a ser o Ativo principal
+    if (!editingId && pauseLinkedFunilId) {
+      data = { ...data, status: "Ativo" };
+    }
+
     if (!data.codigo || !data.tipo || !data.nome || !data.pais || !data.status) {
       showToast("⚠️ Preencha os campos obrigatórios", "warn");
       return;
     }
 
     const now = formatDate(new Date());
+
+    async function pauseLinkedIfNeeded(pauseId?: string) {
+      if (!pauseId) return;
+      const linkedRow = db.find((r) => r.id === pauseId);
+      if (linkedRow?.status !== "Ativo" && linkedRow?.status !== "Em teste") return;
+      const oldSt = linkedRow.status;
+      const paused = await updateFunil(pauseId, { status: "Pausado" });
+      if (!paused) return;
+      setDb((prev) => prev.map((r) => (r.id === pauseId ? paused : r)));
+      const pauseLog: ChangelogEntry = {
+        action: "status",
+        codigo: paused.codigo,
+        nome: paused.nome,
+        timestamp: now,
+        userEmail: user?.email,
+        oldStatus: oldSt,
+        newStatus: "Pausado",
+        descricao: `Pausado automaticamente ao vincular o novo step ${data.codigo} (Ativo)`,
+      };
+      await addChangelogEntry(pauseLog);
+      addLog(pauseLog);
+      showToast(`⏸ ${paused.codigo} pausado — ${data.codigo} ficou Ativo.`, "info");
+    }
 
     try {
       if (editingId) {
@@ -148,7 +204,6 @@ function FunisApp() {
         });
         const statusChanged = old.status !== data.status;
 
-        // Update no banco
         const updated = await updateFunil(editingId, data as Funil);
         if (!updated) {
           showToast("❌ Erro ao atualizar funil", "warn");
@@ -173,13 +228,13 @@ function FunisApp() {
         await addChangelogEntry(logEntry);
         addLog(logEntry);
         showToast("✅ Funil atualizado", "success");
+        await pauseLinkedIfNeeded(pauseLinkedFunilId);
       } else {
         if (db.find((r) => r.codigo === data.codigo)) {
           showToast(`⚠️ Código ${data.codigo} já existe`, "warn");
           return;
         }
 
-        // Create no banco
         const created = await createFunil(data as Funil);
         if (!created) {
           showToast("❌ Erro ao criar funil", "warn");
@@ -193,11 +248,11 @@ function FunisApp() {
           nome: data.nome,
           timestamp: now,
           userEmail: user?.email,
-          descricao: `Tipo: ${data.tipo} · País: ${data.pais} · Status: ${data.status}`,
         };
         await addChangelogEntry(logEntry);
         addLog(logEntry);
         showToast("✅ Funil cadastrado", "success");
+        await pauseLinkedIfNeeded(pauseLinkedFunilId);
       }
     } catch (error) {
       console.error("Erro ao salvar:", error);
@@ -208,33 +263,129 @@ function FunisApp() {
     closeModal();
   }
 
-  async function deleteRecord(id: string) {
-    const rec = db.find((r) => r.id === id);
-    if (!rec) return;
-    if (!confirm(`Excluir "${rec.codigo} — ${rec.nome}"?\n\nEsta ação é irreversível.`)) return;
+  function deleteRecord(id: string) {
+    setPendingDeleteId(id);
+  }
 
+  function requestPermanentDelete(ids: string[]) {
+    const valid = ids.filter((id) => db.find((r) => r.id === id)?.status === "Descartado");
+    if (valid.length === 0) return;
+    setPendingPermanentIds(valid);
+  }
+
+  async function confirmPermanentDeleteRecords() {
+    if (!pendingPermanentIds?.length) return;
+    setPermanentDeleteSubmitting(true);
+    const ids = [...pendingPermanentIds];
+    let removed = 0;
     try {
-      const success = await deleteFunil(id);
-      if (!success) {
-        showToast("❌ Erro ao deletar funil", "warn");
+      const now = formatDate(new Date());
+      for (const id of ids) {
+        const rec = db.find((r) => r.id === id);
+        if (!rec || rec.status !== "Descartado") continue;
+        const ok = await deleteFunil(id);
+        if (!ok) continue;
+        removed++;
+        setDb((prev) => prev.filter((r) => r.id !== id));
+        const logEntry: ChangelogEntry = {
+          action: "delete",
+          codigo: rec.codigo,
+          nome: rec.nome,
+          timestamp: now,
+          userEmail: user?.email,
+          descricao: "Exclusão permanente (descartados)",
+        };
+        await addChangelogEntry(logEntry);
+        addLog(logEntry);
+      }
+      if (removed > 0) {
+        showToast(`✅ ${removed} registro(s) removido(s) permanentemente`, "success");
+      } else {
+        showToast("❌ Não foi possível excluir", "warn");
+      }
+      setPendingPermanentIds(null);
+    } catch (error) {
+      console.error("Erro ao excluir permanentemente:", error);
+      showToast("❌ Erro ao excluir. Verifique sua conexão.", "warn");
+    } finally {
+      setPermanentDeleteSubmitting(false);
+    }
+  }
+
+  async function restoreDiscardedRecords(
+    ids: string[],
+    status: "Ativo" | "Em teste" | "Pausado",
+  ) {
+    const valid = ids.filter((id) => db.find((r) => r.id === id)?.status === "Descartado");
+    if (valid.length === 0) return;
+    const now = formatDate(new Date());
+    let okCount = 0;
+    try {
+      for (const id of valid) {
+        const rec = db.find((r) => r.id === id);
+        if (!rec) continue;
+        const old = rec.status;
+        const updated = await updateFunil(id, { ...rec, status });
+        if (!updated) continue;
+        setDb((prev) => prev.map((r) => (r.id === id ? updated : r)));
+        const logEntry: ChangelogEntry = {
+          action: "status",
+          codigo: rec.codigo,
+          nome: rec.nome,
+          timestamp: now,
+          userEmail: user?.email,
+          descricao: `Restaurado: ${old} → ${status}`,
+        };
+        await addChangelogEntry(logEntry);
+        addLog(logEntry);
+        okCount++;
+      }
+      if (okCount > 0) {
+        showToast(`✅ ${okCount} step(s) restaurado(s) como ${status}`, "success");
+      } else {
+        showToast("❌ Não foi possível restaurar", "warn");
+      }
+    } catch (error) {
+      console.error("Erro ao restaurar:", error);
+      showToast("❌ Erro ao restaurar. Verifique sua conexão.", "warn");
+    }
+  }
+
+  async function confirmDeleteRecord() {
+    const id = pendingDeleteId;
+    if (!id) return;
+    const rec = db.find((r) => r.id === id);
+    if (!rec) {
+      setPendingDeleteId(null);
+      return;
+    }
+
+    setDeleteSubmitting(true);
+    try {
+      const updated = await updateFunil(id, { ...rec, status: "Descartado" });
+      if (!updated) {
+        showToast("❌ Erro ao mover funil para descartados", "warn");
         return;
       }
 
-      setDb((prev) => prev.filter((r) => r.id !== id));
+      setDb((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Descartado" } : r)));
       const logEntry: ChangelogEntry = {
-        action: "delete",
+        action: "status",
         codigo: rec.codigo,
         nome: rec.nome,
         timestamp: formatDate(new Date()),
         userEmail: user?.email,
-        descricao: `Status anterior: ${rec.status}`,
+        descricao: `Status alterado: ${rec.status} → Descartado`,
       };
       await addChangelogEntry(logEntry);
       addLog(logEntry);
-      showToast("🗑 Funil removido", "info");
+      showToast("🗑 Funil movido para descartados", "info");
+      setPendingDeleteId(null);
     } catch (error) {
-      console.error("Erro ao deletar:", error);
-      showToast("❌ Erro ao deletar. Verifique sua conexão.", "warn");
+      console.error("Erro ao mover para descartados:", error);
+      showToast("❌ Erro ao mover funil. Verifique sua conexão.", "warn");
+    } finally {
+      setDeleteSubmitting(false);
     }
   }
 
@@ -247,50 +398,45 @@ function FunisApp() {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
-        <div style={{ textAlign: "center" }}>
-          <h2>Carregando dados...</h2>
-          {isOffline && <p style={{ color: "#ff6b6b" }}>⚠️ Modo offline - usando dados salvos localmente</p>}
+      <div className="app-loading">
+        <div className="app-loading-card">
+          <div className="app-loading-title">Carregando dados…</div>
+          <div className="app-loading-sub">Buscando funis e histórico</div>
+          {isOffline && (
+            <div className="app-loading-warn">
+              ⚠️ Modo offline — usando dados salvos localmente
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", flexDirection: "column" }}>
-      {/* Header com logout */}
-      <div style={{ backgroundColor: "#ffffff", color: "rgb(7, 0, 0)", padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1 style={{ margin: 0, fontSize: "20px", fontWeight: "600" }}>Funil Manager</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          <span style={{ fontSize: "14px" }}>{user?.email}</span>
+    <div className="app-shell">
+      <header className="app-topbar">
+        <div className="app-topbar-brand">Funil Manager</div>
+        <div className="app-topbar-right">
+          {user?.email && <div className="app-topbar-email">{user.email}</div>}
           <button
+            className="btn-topbar-signout"
             onClick={async () => {
               await signOut();
               router.push("/auth");
-            }}
-            style={{
-              backgroundColor: "#e74c3c",
-              color: "white",
-              border: "none",
-              padding: "8px 16px",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: "14px",
-              fontWeight: "500",
             }}
           >
             Sair
           </button>
         </div>
-      </div>
+      </header>
 
       {isOffline && (
-        <div style={{ position: "fixed", top: "56px", width: "100%", backgroundColor: "#ff6b6b", color: "white", padding: "8px", zIndex: 1000 }}>
-          ⚠️ Modo offline - mudanças serão sincronizadas quando a conexão retornar
+        <div className="app-offline-banner">
+          ⚠️ Modo offline — mudanças serão sincronizadas quando a conexão retornar
         </div>
       )}
       
-      <div style={{ display: "flex", flex: 1, marginTop: isOffline ? "40px" : "0" }}>
+      <div className="app-shell-body">
         <Sidebar
           currentPage={page}
           onNavigate={setPage}
@@ -303,6 +449,10 @@ function FunisApp() {
               db={db}
               changelog={changelog}
               onOpenChangelog={() => setPage("changelog")}
+              onGoAtivos={(tipo) => {
+                setAtivosPresetTipo(tipo || "");
+                setPage("ativos");
+              }}
               onEdit={openEditModal}
               onDelete={deleteRecord}
               onNew={openCreateModal}
@@ -314,14 +464,15 @@ function FunisApp() {
               onEdit={openEditModal}
               onDelete={deleteRecord}
               onNew={openCreateModal}
+              presetTipo={ativosPresetTipo}
             />
           )}
           {page === "descartados" && (
             <DescartadosPage
               db={db}
               onEdit={openEditModal}
-              onDelete={deleteRecord}
-              onNew={openCreateModal}
+              onRequestPermanentDelete={requestPermanentDelete}
+              onRestoreDiscarded={restoreDiscardedRecords}
             />
           )}
           {page === "changelog" && (
@@ -336,7 +487,31 @@ function FunisApp() {
           onChange={handleFormChange}
           onSave={saveRecord}
           onClose={closeModal}
+          allFunis={db}
+          editingId={editingId}
         />
+
+        {pendingDeleteFunil && (
+          <DiscardConfirmModal
+            funil={pendingDeleteFunil}
+            busy={deleteSubmitting}
+            onConfirm={confirmDeleteRecord}
+            onCancel={() => {
+              if (!deleteSubmitting) setPendingDeleteId(null);
+            }}
+          />
+        )}
+
+        {pendingPermanentIds && pendingPermanentIds.length > 0 && pendingPermanentRecords.length > 0 && (
+          <PermanentDeleteConfirmModal
+            records={pendingPermanentRecords}
+            busy={permanentDeleteSubmitting}
+            onConfirm={confirmPermanentDeleteRecords}
+            onCancel={() => {
+              if (!permanentDeleteSubmitting) setPendingPermanentIds(null);
+            }}
+          />
+        )}
 
         <Toast
           message={toast.message}

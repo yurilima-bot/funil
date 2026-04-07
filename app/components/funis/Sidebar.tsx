@@ -17,6 +17,7 @@ function NavItem({
   currentPage,
   onNavigate,
   badges,
+  indent = false,
 }: {
   page: Page;
   icon: string;
@@ -25,10 +26,11 @@ function NavItem({
   currentPage: Page;
   onNavigate: (page: Page) => void;
   badges: Record<string, number>;
+  indent?: boolean;
 }) {
   return (
     <div
-      className={`nav-item ${currentPage === page ? "active" : ""}`}
+      className={`nav-item ${currentPage === page ? "active" : ""} ${indent ? "nav-indent" : ""}`}
       onClick={() => onNavigate(page)}
     >
       <div className="nav-icon">{icon}</div>
@@ -42,12 +44,12 @@ export default function Sidebar({ currentPage, onNavigate, badges }: SidebarProp
   return (
     <nav className="sidebar">
       <div className="logo-area">
-        <div className="logo-name">Gestão de Funis</div>
-        <div className="logo-tagline">Painel de controle</div>
+        <div className="logo-name">Funnelytics</div>
+        <div className="logo-tagline">Gestão de Funis</div>
       </div>
       <div className="nav-section">
         <div className="nav-label">Visão Geral</div>
-        <NavItem page="bd" icon="📊" label="Base de Dados" currentPage={currentPage} onNavigate={onNavigate} badges={badges} />
+        <NavItem page="bd" icon="📊" label="Dashboard" currentPage={currentPage} onNavigate={onNavigate} badges={badges} />
 
         <div className="nav-label">Filtros</div>
         <NavItem page="ativos" icon="⚡" label="Ativos & Teste" currentPage={currentPage} onNavigate={onNavigate} badges={badges} />

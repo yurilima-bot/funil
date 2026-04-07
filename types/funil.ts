@@ -15,6 +15,19 @@ export interface Funil {
   url: string;
   dataCriacao: string;
   descricao: string;
+
+  /**
+   * Conexões para o mapa (React Flow). Cada id representa um próximo step.
+   * Persistência: coluna `next_ids` (idealmente `text[]` ou `jsonb`) no Supabase.
+   */
+  nextIds?: string[] | null;
+
+  /**
+   * Posição persistida do node no canvas.
+   * Persistência: colunas `pos_x` e `pos_y` (number) no Supabase.
+   */
+  posX?: number | null;
+  posY?: number | null;
 }
 
 export interface ChangelogEntry {
