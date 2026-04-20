@@ -1,6 +1,28 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Funil } from "@/types/funil";
+
+// ─── Version helpers ──────────────────────────────────────────────────────────
+
+function extractVersionNumber(v: string | undefined): number {
+  if (!v) return 0;
+  const match = v.replace(/^v/i, "").match(/^\d+/);
+  return match ? parseInt(match[0], 10) : 0;
+}
+
+function suggestNextVersion(funis: Funil[], ofertaCode: string): string {
+  const code = ofertaCode.trim().toUpperCase();
+  if (!code) return "";
+  // Family = the linked target itself + every funil that points to the same code
+  const family = funis.filter(
+    (f) =>
+      f.codigo.trim().toUpperCase() === code ||
+      (f.oferta || "").trim().toUpperCase() === code
+  );
+  if (family.length === 0) return "1";
+  const maxV = Math.max(0, ...family.map((f) => extractVersionNumber(f.versao)));
+  return String(maxV + 1);
+}
 
 interface ModalProps {
   open: boolean;
@@ -41,8 +63,22 @@ export default function FunilModal({
   editingId,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  /** Criação + vínculo ativo/em teste: pausar o vínculo ou manter os dois rodando. */
-  const [linkPauseChoice, setLinkPauseChoice] = useState<"pause" | "keep">("keep");
+
+  // Keep onChange in a ref to avoid stale closures in effects
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+
+  // Auto-suggest version when a link (oferta) is selected and version is still empty
+  const ofertaCode = (form.oferta || "").trim().toUpperCase();
+  const suggestedVersion = useMemo(
+    () => suggestNextVersion(allFunis, ofertaCode),
+    [allFunis, ofertaCode]
+  );
+  useEffect(() => {
+    if (mode !== "create" || !ofertaCode || form.versao) return;
+    onChangeRef.current("versao", suggestedVersion);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ofertaCode, suggestedVersion, mode]);
 
   function handleBgClick(e: React.MouseEvent) {
     if (e.target === overlayRef.current) onClose();
@@ -77,16 +113,20 @@ export default function FunilModal({
       .sort((a, b) => (a.codigo || "").localeCompare(b.codigo || ""));
   }, [allFunis, form.tipo, editingId]);
 
-  useEffect(() => {
-    setLinkPauseChoice("keep");
-  }, [vinculoAlvo?.id, form.oferta]);
-
   const tipoColor = tipoColors[form.tipo || "Oferta"];
 
-  const vinculoPodePausar =
+  /** Linked step exists and is active or in test — relevant only during creation */
+  const vinculoAtivo =
     mode === "create" &&
     vinculoAlvo &&
     (vinculoAlvo.status === "Ativo" || vinculoAlvo.status === "Em teste");
+
+  /**
+   * Auto-pause rule:
+   * - New step "Ativo" → pause the linked (it becomes the only active)
+   * - New step "Em teste" → keep the linked running, both coexist
+   */
+  const autoPauseLinked = vinculoAtivo && form.status === "Ativo";
 
   function handleTipoChange(tipo: string) {
     onChange("tipo", tipo);
@@ -281,17 +321,37 @@ export default function FunilModal({
 
               <div className="form-group">
                 <label>Versão</label>
-                <select
+                <input
+                  type="text"
                   value={form.versao || ""}
                   onChange={(e) => onChange("versao", e.target.value)}
-                >
-                  <option value="">Sem versão</option>
-                  {["V1", "V2", "V3", "V4", "V5", "V6"].map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
+                  placeholder={
+                    ofertaCode && suggestedVersion
+                      ? `Sugerida: ${suggestedVersion}`
+                      : "ex: 1, 2, 3..."
+                  }
+                />
+                {ofertaCode && suggestedVersion && !form.versao && (
+                  <div className="form-hint" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>Próxima versão para esta oferta:</span>
+                    <button
+                      type="button"
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#1a56db",
+                        background: "#eff4ff",
+                        border: "1px solid #1a56db40",
+                        borderRadius: 5,
+                        padding: "1px 8px",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => onChange("versao", suggestedVersion)}
+                    >
+                      Usar v{suggestedVersion}
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
@@ -342,44 +402,34 @@ export default function FunilModal({
                     {form.tipo && !vinculoOptions.length && (
                       <div className="form-hint">Não há outro step do tipo «{form.tipo}» para vincular.</div>
                     )}
-                    {vinculoPodePausar && (
+                    {vinculoAtivo && (
                       <div
-                        className="vinculo-pause-box"
                         style={{
                           marginTop: 10,
-                          padding: 10,
+                          padding: "10px 12px",
                           borderRadius: 8,
-                          border: "1px solid var(--border, #e5e7eb)",
-                          background: "var(--bg-soft, #f8fafc)",
+                          border: `1px solid ${autoPauseLinked ? "#fca5a5" : "#86efac"}`,
+                          background: autoPauseLinked ? "#fff1f2" : "#f0fdf4",
+                          display: "flex",
+                          gap: 10,
+                          alignItems: "flex-start",
                         }}
                       >
-                        <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8, color: "var(--text2)" }}>
-                          O step vinculado ({vinculoAlvo!.codigo}) está{" "}
-                          <strong>{vinculoAlvo!.status === "Em teste" ? "Em teste" : "Ativo"}</strong>. Deseja pausá-lo?
-                        </div>
-                        <div style={{ fontSize: 10, color: "var(--text4)", marginBottom: 8, lineHeight: 1.4 }}>
-                          Se escolher <strong>Sim</strong>, o vínculo será <strong>Pausado</strong> e este novo step será salvo
-                          como <strong>Ativo</strong>.
-                        </div>
-                        <div className="vinculo-pause-options" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                          <label style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer", fontSize: 12 }}>
-                            <input
-                              type="radio"
-                              name="linkPause"
-                              checked={linkPauseChoice === "keep"}
-                              onChange={() => setLinkPauseChoice("keep")}
-                            />
-                            <span>Não — manter o vínculo como está e usar o status que escolhi acima</span>
-                          </label>
-                          <label style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer", fontSize: 12 }}>
-                            <input
-                              type="radio"
-                              name="linkPause"
-                              checked={linkPauseChoice === "pause"}
-                              onChange={() => setLinkPauseChoice("pause")}
-                            />
-                            <span>Sim — pausar o step vinculado; este novo step fica <strong>Ativo</strong></span>
-                          </label>
+                        <span style={{ fontSize: 16, marginTop: 1 }}>
+                          {autoPauseLinked ? "⏸" : "🧪"}
+                        </span>
+                        <div style={{ fontSize: 11, lineHeight: 1.5, color: autoPauseLinked ? "#991b1b" : "#166534" }}>
+                          {autoPauseLinked ? (
+                            <>
+                              <strong>{vinculoAlvo!.codigo}</strong> será pausado automaticamente.
+                              Este novo step ficará como o único <strong>Ativo</strong>.
+                            </>
+                          ) : (
+                            <>
+                              <strong>{vinculoAlvo!.codigo}</strong> continuará <strong>{vinculoAlvo!.status}</strong>.
+                              Este novo step será criado como <strong>Em teste</strong>, ambos rodam juntos.
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
@@ -468,9 +518,7 @@ export default function FunilModal({
             <button 
               className="btn btn-primary" 
               onClick={() => {
-                const pauseId =
-                  vinculoPodePausar && linkPauseChoice === "pause" ? vinculoAlvo!.id : undefined;
-                onSave(pauseId);
+                onSave(autoPauseLinked ? vinculoAlvo!.id : undefined);
               }}
               disabled={!form.tipo || !form.codigo || !form.nome || !form.pais || !form.status}
             >

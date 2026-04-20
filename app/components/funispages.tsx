@@ -4,6 +4,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Funil, ChangelogEntry, FunilStatus } from "@/types/funil";
 import { StatusBadge, TipoBadge } from "./badges";
 import FunisFlowCanvas from "@/app/components/funis/FunisFlowCanvas";
+import TipoHubCanvas from "@/app/components/funis/TipoHubCanvas";
+import MapaGeralCanvas from "@/app/components/funis/MapaGeralCanvas";
 
 type PageView = "bd" | "ativos" | "descartados";
 
@@ -463,6 +465,150 @@ export function AtivosPage({
             <FunisFlowCanvas funis={recs} onEdit={onEdit} onDelete={onDelete} />
           </>
         )}
+      </div>
+    </>
+  );
+}
+
+const TIPO_CONFIG: Record<string, { icon: string; color: string; label: string; sub: string }> = {
+  Lead: {
+    icon: "📈",
+    color: "#10b981",
+    label: "Leads",
+    sub: "Funis de captação de leads",
+  },
+  Oferta: {
+    icon: "🛒",
+    color: "#1a56db",
+    label: "Ofertas / VSL",
+    sub: "Páginas de venda e vídeos de vendas",
+  },
+  Upsell: {
+    icon: "⬆️",
+    color: "#f59e0b",
+    label: "Upsell",
+    sub: "Ofertas de aumento de ticket",
+  },
+};
+
+export function TipoCanvasPage({
+  tipo,
+  db,
+  onEdit,
+  onDelete,
+  onNew,
+}: {
+  tipo: "Lead" | "Oferta" | "Upsell";
+  db: Funil[];
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+  onNew: () => void;
+}) {
+  const cfg = TIPO_CONFIG[tipo];
+
+  // Include ALL statuses — descartados appear on the right with red connections
+  const funis = useMemo(
+    () => db.filter((r) => r.tipo === tipo),
+    [db, tipo]
+  );
+
+  const ativo = funis.filter((r) => r.status === "Ativo").length;
+  const teste = funis.filter((r) => r.status === "Em teste").length;
+  const pausado = funis.filter((r) => r.status === "Pausado").length;
+  const descartado = funis.filter((r) => r.status === "Descartado").length;
+
+  return (
+    <>
+      <div className="page-header">
+        <div>
+          <div className="page-title" style={{ color: cfg.color }}>
+            {cfg.icon} {cfg.label}
+          </div>
+          <div className="page-sub">{cfg.sub}</div>
+        </div>
+        <button className="btn btn-primary" onClick={() => onNew()}>
+          + Novo {tipo}
+        </button>
+      </div>
+
+      <div className="funnel-flow-container">
+        <div className="stats-row" style={{ marginBottom: "20px" }}>
+          <div className="stat-card">
+            <div className="stat-label">Ativos</div>
+            <div className="stat-value stat-green">{ativo}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Em Teste</div>
+            <div className="stat-value stat-yellow">{teste}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Pausados</div>
+            <div className="stat-value stat-orange">{pausado}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Descartados</div>
+            <div className="stat-value" style={{ color: "#dc2626" }}>{descartado}</div>
+          </div>
+        </div>
+
+        {funis.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">{cfg.icon}</div>
+            <div className="empty-text">Nenhum {cfg.label.toLowerCase()} cadastrado</div>
+            <button className="btn btn-primary" onClick={() => onNew()}>
+              + Criar {tipo}
+            </button>
+          </div>
+        ) : (
+          <TipoHubCanvas tipo={tipo} funis={funis} onEdit={onEdit} onDelete={onDelete} />
+        )}
+      </div>
+    </>
+  );
+}
+
+export function MapaGeralPage({
+  db,
+  onSelectTipo,
+  onNew,
+}: {
+  db: Funil[];
+  onSelectTipo: (tipo: string) => void;
+  onNew: () => void;
+}) {
+  const total = db.length;
+  const ativos = db.filter((r) => r.status === "Ativo").length;
+  const teste = db.filter((r) => r.status === "Em teste").length;
+
+  return (
+    <>
+      <div className="page-header">
+        <div>
+          <div className="page-title">🗺 Mapa Geral</div>
+          <div className="page-sub">Visão do funil completo · clique em um card para ver o mapa de conexões</div>
+        </div>
+        <button className="btn btn-primary" onClick={() => onNew()}>
+          + Novo Step
+        </button>
+      </div>
+
+      <div className="funnel-flow-container">
+        <div className="stats-row" style={{ marginBottom: "20px" }}>
+          <div className="stat-card">
+            <div className="stat-label">Total de Steps</div>
+            <div className="stat-value stat-blue">{total}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Ativos</div>
+            <div className="stat-value stat-green">{ativos}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Em Teste</div>
+            <div className="stat-value stat-yellow">{teste}</div>
+          </div>
+        </div>
+
+        <MapaGeralCanvas db={db} onSelect={onSelectTipo} />
       </div>
     </>
   );

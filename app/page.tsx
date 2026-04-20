@@ -12,7 +12,7 @@ import DiscardConfirmModal from "@/app/components/DiscardConfirmModal";
 import PermanentDeleteConfirmModal from "@/app/components/PermanentDeleteConfirmModal";
 import Toast from "@/app/components/toast";
 import ChangelogPage from "@/app/components/changelogpage";
-import { BDPage, AtivosPage, DescartadosPage } from "@/app/components/funispages";
+import { TipoCanvasPage, MapaGeralPage } from "@/app/components/funispages";
 
 const EMPTY_FORM: Partial<Funil> = {
   codigo: "",
@@ -33,8 +33,7 @@ function FunisApp() {
   const { user, signOut } = useAuth();
   const [db, setDb] = useState<Funil[]>([]);
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
-  const [page, setPage] = useState<AppPage>("bd");
-  const [ativosPresetTipo, setAtivosPresetTipo] = useState<string>("");
+  const [page, setPage] = useState<AppPage>("mapa");
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -157,11 +156,6 @@ function FunisApp() {
       dataCriacao: form.dataCriacao || "",
       descricao: (form.descricao || "").trim(),
     };
-
-    // Criação + "Sim, pausar vínculo": o novo step passa a ser o Ativo principal
-    if (!editingId && pauseLinkedFunilId) {
-      data = { ...data, status: "Ativo" };
-    }
 
     if (!data.codigo || !data.tipo || !data.nome || !data.pais || !data.status) {
       showToast("⚠️ Preencha os campos obrigatórios", "warn");
@@ -325,9 +319,9 @@ function FunisApp() {
         const rec = db.find((r) => r.id === id);
         if (!rec) continue;
         const old = rec.status;
-        const updated = await updateFunil(id, { ...rec, status });
+        const updated = await updateFunil(id, { status });
         if (!updated) continue;
-        setDb((prev) => prev.map((r) => (r.id === id ? updated : r)));
+        setDb((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
         const logEntry: ChangelogEntry = {
           action: "status",
           codigo: rec.codigo,
@@ -362,7 +356,7 @@ function FunisApp() {
 
     setDeleteSubmitting(true);
     try {
-      const updated = await updateFunil(id, { ...rec, status: "Descartado" });
+      const updated = await updateFunil(id, { status: "Descartado" });
       if (!updated) {
         showToast("❌ Erro ao mover funil para descartados", "warn");
         return;
@@ -390,9 +384,10 @@ function FunisApp() {
   }
 
   const badges = {
-    bd: db.length,
-    ativos: db.filter((r) => r.status !== "Descartado").length,
-    descartados: db.filter((r) => r.status === "Descartado").length,
+    mapa: db.length,
+    leads: db.filter((r) => r.tipo === "Lead").length,
+    ofertas: db.filter((r) => r.tipo === "Oferta").length,
+    upsell: db.filter((r) => r.tipo === "Upsell").length,
     changelog: changelog.length,
   };
 
@@ -444,35 +439,42 @@ function FunisApp() {
         />
 
         <main className="main">
-          {page === "bd" && (
-            <BDPage
+          {page === "mapa" && (
+            <MapaGeralPage
               db={db}
-              changelog={changelog}
-              onOpenChangelog={() => setPage("changelog")}
-              onGoAtivos={(tipo) => {
-                setAtivosPresetTipo(tipo || "");
-                setPage("ativos");
+              onSelectTipo={(tipo) => {
+                if (tipo === "Lead") setPage("leads");
+                else if (tipo === "Oferta") setPage("ofertas");
+                else if (tipo === "Upsell") setPage("upsell");
               }}
+              onNew={openCreateModal}
+            />
+          )}
+          {page === "leads" && (
+            <TipoCanvasPage
+              tipo="Lead"
+              db={db}
               onEdit={openEditModal}
               onDelete={deleteRecord}
               onNew={openCreateModal}
             />
           )}
-          {page === "ativos" && (
-            <AtivosPage
+          {page === "ofertas" && (
+            <TipoCanvasPage
+              tipo="Oferta"
               db={db}
               onEdit={openEditModal}
               onDelete={deleteRecord}
               onNew={openCreateModal}
-              presetTipo={ativosPresetTipo}
             />
           )}
-          {page === "descartados" && (
-            <DescartadosPage
+          {page === "upsell" && (
+            <TipoCanvasPage
+              tipo="Upsell"
               db={db}
               onEdit={openEditModal}
-              onRequestPermanentDelete={requestPermanentDelete}
-              onRestoreDiscarded={restoreDiscardedRecords}
+              onDelete={deleteRecord}
+              onNew={openCreateModal}
             />
           )}
           {page === "changelog" && (

@@ -225,6 +225,12 @@ type FunnelFlowNode = Node<FunnelNodeData, "funnel">;
 function FunnelNode({ data }: NodeProps<FunnelFlowNode>) {
   const f = data.funil;
   const stroke = STATUS_STROKE[f.status] || "#94a3b8";
+  const bgColor =
+    f.status === "Em teste"
+      ? "#fffbeb"
+      : f.status === "Pausado"
+      ? "#f8fafc"
+      : "#fff";
   return (
     <div
       className="funis-flow-node"
@@ -233,7 +239,7 @@ function FunnelNode({ data }: NodeProps<FunnelFlowNode>) {
         minHeight: NODE_H - 12,
         padding: "10px 12px",
         borderRadius: 12,
-        background: "#fff",
+        background: bgColor,
         border: `2px solid ${stroke}`,
         boxShadow: "0 2px 12px rgba(0,0,0,0.07)",
         fontSize: 12,
@@ -324,13 +330,14 @@ function buildFlowElements(
       for (const f of group) {
         for (const targetId of f.nextIds || []) {
           if (targetId === f.id) continue;
+          const edgeColor = STATUS_STROKE[f.status] || "#94a3b8";
           pushDeduped({
             id: `e-${f.id}-${targetId}`,
             type: "deletable",
             source: f.id,
             target: targetId,
-            animated: true,
-            style: { stroke: "#6366f1", strokeWidth: 2 },
+            animated: f.status === "Ativo",
+            style: { stroke: edgeColor, strokeWidth: 2 },
           });
         }
       }
@@ -340,13 +347,14 @@ function buildFlowElements(
     for (const f of group) {
       const vTarget = resolveVinculoTarget(funis, f);
       if (!vTarget) continue;
+      const edgeColor = STATUS_STROKE[f.status] || "#94a3b8";
       pushDeduped({
         id: `e-vinc-${f.id}-${vTarget.id}`,
         type: "deletable",
         source: f.id,
         target: vTarget.id,
-        animated: true,
-        style: { stroke: "#7c3aed", strokeWidth: 2 },
+        animated: f.status === "Ativo",
+        style: { stroke: edgeColor, strokeWidth: 2 },
       });
     }
 
@@ -378,7 +386,6 @@ function FlowInner({
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
-  const { fitView } = useReactFlow();
 
   // Overrides locais para UX instantânea (não depende do refresh do db no pai)
   const [overrides, setOverrides] = useState<Record<string, Partial<Funil>>>({});
@@ -572,17 +579,6 @@ function FlowInner({
     setEdges(built.edges);
   }, [funisView, onEdit, onDelete, setNodes, setEdges]);
 
-  useEffect(() => {
-    const t = requestAnimationFrame(() => {
-      fitView({ padding: 0.15, duration: 200 });
-    });
-    return () => cancelAnimationFrame(t);
-  }, [funisView, fitView]);
-
-  const onInit = useCallback(() => {
-    fitView({ padding: 0.15 });
-  }, [fitView]);
-
   const isValidConnection = useCallback((edge: Connection | Edge) => {
     return Boolean(edge.source && edge.target && edge.source !== edge.target);
   }, []);
@@ -591,14 +587,17 @@ function FlowInner({
     async (connection: Connection) => {
       if (!connection.source || !connection.target || connection.source === connection.target) return;
 
+      const srcFunil = funisView.find((f) => f.id === connection.source);
+      const edgeColor = srcFunil ? (STATUS_STROKE[srcFunil.status] || "#94a3b8") : "#3b82f6";
+
       setEdges((eds) =>
         addEdge(
           {
             ...connection,
             id: `e-${connection.source}-${connection.target}`,
             type: "deletable",
-            animated: true,
-            style: { stroke: "#3b82f6", strokeWidth: 2 },
+            animated: srcFunil?.status === "Ativo",
+            style: { stroke: edgeColor, strokeWidth: 2 },
           },
           eds
         )
@@ -675,8 +674,6 @@ function FlowInner({
       onNodeDragStop={onNodeDragStop}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
-      onInit={onInit}
-      fitView
       minZoom={0.05}
       maxZoom={2}
       deleteKeyCode={["Backspace", "Delete"]}

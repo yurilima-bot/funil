@@ -13,7 +13,7 @@ export async function fetchFunis(): Promise<Funil[]> {
       .order("created_at", { ascending: false });
 
     if (error) throw error;
-    return data || [];
+    return data ? data.map(transformFromDB) : [];
   } catch (error) {
     console.error("Erro ao buscar funis:", error);
     return [];
@@ -71,7 +71,7 @@ export async function updateFunil(id: string, funil: Partial<Funil>): Promise<Fu
     if (funil.checkout !== undefined) updateData.checkout = funil.checkout;
     if (funil.status !== undefined) updateData.status = funil.status;
     if (funil.url !== undefined) updateData.url = funil.url;
-    if (funil.dataCriacao !== undefined) updateData.data_criacao = funil.dataCriacao;
+    if (funil.dataCriacao !== undefined && funil.dataCriacao !== "") updateData.data_criacao = funil.dataCriacao;
     if (funil.descricao !== undefined) updateData.descricao = funil.descricao;
     if (funil.nextIds !== undefined) updateData.next_ids = funil.nextIds;
     if (funil.posX !== undefined) updateData.pos_x = funil.posX;
@@ -87,7 +87,8 @@ export async function updateFunil(id: string, funil: Partial<Funil>): Promise<Fu
     if (error) throw error;
     return data ? transformFromDB(data) : null;
   } catch (error) {
-    console.error("Erro ao atualizar funil:", error);
+    const msg = error instanceof Error ? error.message : JSON.stringify(error);
+    console.error("Erro ao atualizar funil:", msg, error);
     return null;
   }
 }
