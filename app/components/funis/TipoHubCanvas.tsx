@@ -708,7 +708,7 @@ function TipoHubFlowInner({
   );
 
   const onNodeDragStop = useCallback(
-    async (_: unknown, node: FunnelFlowNode) => {
+    async (_: unknown, node: HubFlowNode | FunnelFlowNode) => {
       if (node.type !== "funnel") return;
       try {
         await updateFunil(node.id, { posX: node.position.x, posY: node.position.y });
