@@ -12,7 +12,7 @@ import DiscardConfirmModal from "@/app/components/DiscardConfirmModal";
 import PermanentDeleteConfirmModal from "@/app/components/PermanentDeleteConfirmModal";
 import Toast from "@/app/components/toast";
 import ChangelogPage from "@/app/components/changelogpage";
-import { TipoCanvasPage, MapaGeralPage } from "@/app/components/funispages";
+import FunisFlowCanvas from "@/app/components/funis/FunisFlowCanvas";
 
 const EMPTY_FORM: Partial<Funil> = {
   codigo: "",
@@ -45,6 +45,8 @@ function FunisApp() {
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [pendingPermanentIds, setPendingPermanentIds] = useState<string[] | null>(null);
   const [permanentDeleteSubmitting, setPermanentDeleteSubmitting] = useState(false);
+  const [pendingAutoConnectFromId, setPendingAutoConnectFromId] = useState<string | null>(null);
+  const [pendingSourceCanvasPos, setPendingSourceCanvasPos] = useState<{ x: number; y: number } | null>(null);
 
   const pendingDeleteFunil = pendingDeleteId ? db.find((r) => r.id === pendingDeleteId) ?? null : null;
 
@@ -110,6 +112,84 @@ function FunisApp() {
       status: ctx === "descartado" ? "Descartado" : "",
     });
     setModalOpen(true);
+  }
+
+  function openCreateModalPreset(preset: Partial<Funil>) {
+    setModalMode("create");
+    setEditingId(null);
+    setForm({
+      ...EMPTY_FORM,
+      dataCriacao: new Date().toISOString().split("T")[0],
+      status: "",
+      ...preset,
+    });
+    setModalOpen(true);
+  }
+
+  function suggestChildCodigo(parentCodigo: string, tipo: "Lead" | "Upsell") {
+    const siblings = db.filter((r) => r.oferta === parentCodigo && r.tipo === tipo);
+    const n = siblings.length + 1;
+    const suffix = String(n).padStart(2, "0");
+    return tipo === "Lead" ? `${parentCodigo}-LEAD${suffix}` : `${parentCodigo}-UP${suffix}`;
+  }
+
+  function suggestChildCodigoFromParent(parentId: string, tipo: "Lead" | "Upsell") {
+    const parent = db.find((r) => r.id === parentId) || null;
+    const base = parent?.codigo || String(parent?.oferta || "").trim().toUpperCase();
+    const childIds = parent?.nextIds || [];
+    const n = db.filter((r) => childIds.includes(r.id) && r.tipo === tipo).length + 1;
+    const suffix = String(n).padStart(2, "0");
+    return tipo === "Lead" ? `${base}-LEAD${suffix}` : `${base}-UP${suffix}`;
+  }
+
+  function suggestChildVersao(parentCodigo: string) {
+    const parent = db.find((r) => r.codigo === parentCodigo && r.tipo === "Oferta") || null;
+    const parentV = parent?.versao ? Number(String(parent.versao).replace(/^v/i, "")) : NaN;
+    const base = Number.isFinite(parentV) && parentV > 0 ? parentV : 1;
+    // Regra pedida: se estiver criando Lead/Upsell de uma oferta, começa como v2.
+    return String(base + 1);
+  }
+
+  function openQuickCreateFromOferta(args: {
+    preset: Partial<Funil>;
+    connectFromId?: string;
+    sourceCanvasX?: number | null;
+    sourceCanvasY?: number | null;
+  }) {
+    const ofertaCodigo = String(args.preset.oferta || "").trim().toUpperCase();
+    const tipo = args.preset.tipo as "Lead" | "Upsell" | undefined;
+    const parent = args.connectFromId ? db.find((r) => r.id === args.connectFromId) || null : null;
+    setPendingAutoConnectFromId(args.connectFromId || null);
+    setPendingSourceCanvasPos(
+      args.sourceCanvasX != null && args.sourceCanvasY != null
+        ? { x: args.sourceCanvasX, y: args.sourceCanvasY }
+        : null
+    );
+
+    const computed: Partial<Funil> = { ...args.preset };
+    if (tipo) {
+      // Mantém a oferta do funil pai (para permitir Lead → Lead dentro da mesma oferta)
+      const effectiveOferta =
+        (parent?.tipo === "Oferta" ? parent.codigo : parent?.oferta) || ofertaCodigo;
+      if (effectiveOferta) computed.oferta = String(effectiveOferta).trim().toUpperCase();
+
+      // Código: se tiver um pai (Lead/Upsell/Oferta), gera baseado nele; senão, usa a oferta
+      if (args.connectFromId) {
+        computed.codigo = suggestChildCodigoFromParent(args.connectFromId, tipo);
+      } else if (computed.oferta) {
+        computed.codigo = suggestChildCodigo(String(computed.oferta), tipo);
+      }
+
+      // Versão: regra v2 só quando criar direto da Oferta; senão herda do pai, se existir
+      if (parent?.tipo === "Oferta") {
+        computed.versao = suggestChildVersao(parent.codigo);
+      } else if (parent?.versao) {
+        computed.versao = String(parent.versao);
+      } else if (computed.oferta) {
+        computed.versao = suggestChildVersao(String(computed.oferta));
+      }
+    }
+    openCreateModalPreset(computed);
   }
 
   function openEditModal(id: string) {
@@ -247,6 +327,42 @@ function FunisApp() {
         addLog(logEntry);
         showToast("✅ Funil cadastrado", "success");
         await pauseLinkedIfNeeded(pauseLinkedFunilId);
+
+        // Se veio do "+" da oferta: cria conexão Oferta → novo step e posiciona à direita
+        if (pendingAutoConnectFromId) {
+          const src = db.find((r) => r.id === pendingAutoConnectFromId) || null;
+          const current = src?.nextIds || [];
+          const nextIds = current.includes(created.id) ? current : [...current, created.id];
+
+          // Posiciona o novo nó à direita da Oferta no canvas
+          const NODE_W = 240;
+          const CONN_GAP = 80;
+          if (pendingSourceCanvasPos) {
+            const newX = pendingSourceCanvasPos.x + NODE_W + CONN_GAP;
+            const newY = pendingSourceCanvasPos.y;
+            // Garante que a Oferta também tenha posição salva (para consistência)
+            const srcPosX = typeof src?.posX === "number" ? src.posX : pendingSourceCanvasPos.x;
+            const srcPosY = typeof src?.posY === "number" ? src.posY : pendingSourceCanvasPos.y;
+            setDb((prev) =>
+              prev.map((r) => {
+                if (r.id === pendingAutoConnectFromId) return { ...r, nextIds, posX: srcPosX, posY: srcPosY };
+                if (r.id === created.id) return { ...r, posX: newX, posY: newY };
+                return r;
+              })
+            );
+            await Promise.all([
+              updateFunil(pendingAutoConnectFromId, { nextIds, posX: srcPosX, posY: srcPosY }),
+              updateFunil(created.id, { posX: newX, posY: newY }),
+            ]);
+          } else {
+            setDb((prev) =>
+              prev.map((r) => (r.id === pendingAutoConnectFromId ? { ...r, nextIds } : r))
+            );
+            await updateFunil(pendingAutoConnectFromId, { nextIds });
+          }
+        }
+        setPendingAutoConnectFromId(null);
+        setPendingSourceCanvasPos(null);
       }
     } catch (error) {
       console.error("Erro ao salvar:", error);
@@ -272,13 +388,22 @@ function FunisApp() {
     setPermanentDeleteSubmitting(true);
     const ids = [...pendingPermanentIds];
     let removed = 0;
+    const failed: Array<{ id: string; codigo: string; reason?: string }> = [];
     try {
       const now = formatDate(new Date());
       for (const id of ids) {
         const rec = db.find((r) => r.id === id);
         if (!rec || rec.status !== "Descartado") continue;
-        const ok = await deleteFunil(id);
-        if (!ok) continue;
+        const res = await deleteFunil(id);
+
+        // Se estiver offline (ou sem supabase), remove localmente para o usuário conseguir limpar a lista.
+        const canRemoveLocally = isOffline || res.error === "Supabase não configurado";
+
+        if (!res.ok && !canRemoveLocally) {
+          failed.push({ id, codigo: rec.codigo, reason: res.error });
+          continue;
+        }
+
         removed++;
         setDb((prev) => prev.filter((r) => r.id !== id));
         const logEntry: ChangelogEntry = {
@@ -289,13 +414,23 @@ function FunisApp() {
           userEmail: user?.email,
           descricao: "Exclusão permanente (descartados)",
         };
-        await addChangelogEntry(logEntry);
-        addLog(logEntry);
+        // Em modo offline, não tenta gravar log no Supabase.
+        if (!isOffline && res.ok) {
+          await addChangelogEntry(logEntry);
+          addLog(logEntry);
+        } else {
+          addLog(logEntry);
+        }
       }
       if (removed > 0) {
-        showToast(`✅ ${removed} registro(s) removido(s) permanentemente`, "success");
+        const suffix = isOffline ? " (removido(s) localmente — offline)" : "";
+        showToast(`✅ ${removed} registro(s) removido(s) permanentemente${suffix}`, "success");
       } else {
-        showToast("❌ Não foi possível excluir", "warn");
+        const msg =
+          failed.length > 0
+            ? `❌ Não foi possível excluir (${failed[0].codigo}). Motivo: ${failed[0].reason || "erro desconhecido"}`
+            : "❌ Não foi possível excluir";
+        showToast(msg, "warn");
       }
       setPendingPermanentIds(null);
     } catch (error) {
@@ -356,6 +491,33 @@ function FunisApp() {
 
     setDeleteSubmitting(true);
     try {
+      // Se já estiver descartado, o botão "Excluir" deve remover permanentemente.
+      if (rec.status === "Descartado") {
+        const res = await deleteFunil(id);
+        const canRemoveLocally = isOffline || res.error === "Supabase não configurado";
+        if (!res.ok && !canRemoveLocally) {
+          showToast(`❌ Erro ao excluir permanentemente: ${res.error || "falha desconhecida"}`, "warn");
+          return;
+        }
+
+        setDb((prev) => prev.filter((r) => r.id !== id));
+        const logEntry: ChangelogEntry = {
+          action: "delete",
+          codigo: rec.codigo,
+          nome: rec.nome,
+          timestamp: formatDate(new Date()),
+          userEmail: user?.email,
+          descricao: "Exclusão permanente (item já descartado)",
+        };
+        if (!isOffline && res.ok) {
+          await addChangelogEntry(logEntry);
+        }
+        addLog(logEntry);
+        showToast("🗑 Excluído permanentemente", "success");
+        setPendingDeleteId(null);
+        return;
+      }
+
       const updated = await updateFunil(id, { status: "Descartado" });
       if (!updated) {
         showToast("❌ Erro ao mover funil para descartados", "warn");
@@ -385,9 +547,6 @@ function FunisApp() {
 
   const badges = {
     mapa: db.length,
-    leads: db.filter((r) => r.tipo === "Lead").length,
-    ofertas: db.filter((r) => r.tipo === "Oferta").length,
-    upsell: db.filter((r) => r.tipo === "Upsell").length,
     changelog: changelog.length,
   };
 
@@ -440,42 +599,49 @@ function FunisApp() {
 
         <main className="main">
           {page === "mapa" && (
-            <MapaGeralPage
-              db={db}
-              onSelectTipo={(tipo) => {
-                if (tipo === "Lead") setPage("leads");
-                else if (tipo === "Oferta") setPage("ofertas");
-                else if (tipo === "Upsell") setPage("upsell");
-              }}
-              onNew={openCreateModal}
-            />
-          )}
-          {page === "leads" && (
-            <TipoCanvasPage
-              tipo="Lead"
-              db={db}
-              onEdit={openEditModal}
-              onDelete={deleteRecord}
-              onNew={openCreateModal}
-            />
-          )}
-          {page === "ofertas" && (
-            <TipoCanvasPage
-              tipo="Oferta"
-              db={db}
-              onEdit={openEditModal}
-              onDelete={deleteRecord}
-              onNew={openCreateModal}
-            />
-          )}
-          {page === "upsell" && (
-            <TipoCanvasPage
-              tipo="Upsell"
-              db={db}
-              onEdit={openEditModal}
-              onDelete={deleteRecord}
-              onNew={openCreateModal}
-            />
+            <>
+              <div className="page-header">
+                <div>
+                  <div className="page-title">Funil</div>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => openCreateModalPreset({ tipo: "Oferta" })}
+                >
+                  + Nova Oferta
+                </button>
+              </div>
+
+              <div className="funnel-flow-container">
+                <div className="stats-row" style={{ marginBottom: "20px" }}>
+                  <div className="stat-card">
+                    <div className="stat-label">Ativos</div>
+                    <div className="stat-value stat-green">{db.filter((r) => r.status === "Ativo").length}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Em Teste</div>
+                    <div className="stat-value stat-yellow">{db.filter((r) => r.status === "Em teste").length}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Pausados</div>
+                    <div className="stat-value stat-orange">{db.filter((r) => r.status === "Pausado").length}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Descartados</div>
+                    <div className="stat-value" style={{ color: "#dc2626" }}>
+                      {db.filter((r) => r.status === "Descartado").length}
+                    </div>
+                  </div>
+                
+                </div>
+                <FunisFlowCanvas
+                  funis={db}
+                  onEdit={openEditModal}
+                  onDelete={deleteRecord}
+                  onQuickCreate={openQuickCreateFromOferta}
+                />
+              </div>
+            </>
           )}
           {page === "changelog" && (
             <ChangelogPage changelog={changelog} />

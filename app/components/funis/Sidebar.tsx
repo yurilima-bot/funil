@@ -1,6 +1,6 @@
 "use client";
 
-export type AppPage = "mapa" | "leads" | "ofertas" | "upsell" | "changelog";
+export type AppPage = "mapa" | "changelog";
 type Page = AppPage;
 
 interface SidebarProps {
@@ -50,11 +50,6 @@ export default function Sidebar({ currentPage, onNavigate, badges }: SidebarProp
       <div className="nav-section">
         <div className="nav-label">Visão Geral</div>
         <NavItem page="mapa" icon="🗺" label="Mapa Geral" currentPage={currentPage} onNavigate={onNavigate} badges={badges} />
-
-        <div className="nav-label">Por Tipo</div>
-        <NavItem page="leads" icon="📈" label="Leads" currentPage={currentPage} onNavigate={onNavigate} badges={badges} />
-        <NavItem page="ofertas" icon="🛒" label="Ofertas / VSL" currentPage={currentPage} onNavigate={onNavigate} badges={badges} />
-        <NavItem page="upsell" icon="⬆️" label="Upsell" currentPage={currentPage} onNavigate={onNavigate} badges={badges} />
 
         <div className="nav-label">Sistema</div>
         <NavItem page="changelog" icon="📋" label="Alterações" currentPage={currentPage} onNavigate={onNavigate} badges={badges} />

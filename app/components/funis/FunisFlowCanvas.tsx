@@ -34,7 +34,8 @@ const NODE_W = 240;
 const NODE_H = 108;
 const GROUP_GAP = 96;
 
-const TIPO_ORDER: Record<string, number> = { Lead: 0, Oferta: 1, Upsell: 2 };
+// Oferta deve ser o card principal do grupo (root). Leads/Upsell ficam "dentro" (mesma oferta).
+const TIPO_ORDER: Record<string, number> = { Oferta: 0, Lead: 1, Upsell: 2 };
 
 const STATUS_STROKE: Record<string, string> = {
   Ativo: "#059669",
@@ -106,6 +107,21 @@ function isVinculoEdge(funis: Funil[], e: Edge): boolean {
   if (!src || !tgt) return false;
   const link = normCodigo(src.oferta);
   return link.length > 0 && link === normCodigo(tgt.codigo);
+}
+
+/** Lead/Upsell já “pertencem” à Oferta pelo campo `oferta` — não desenhar aresta duplicada Lead→Oferta (só `nextIds`). */
+function shouldDrawVinculoEdge(f: Funil, vTarget: Funil): boolean {
+  if (f.tipo !== "Oferta" && vTarget.tipo === "Oferta") return false;
+  return true;
+}
+
+/** Handles nomeados em `FunnelNode`: fluxo normal à direita; Descartado por baixo; Pausado pela esquerda. */
+function handlesForEdgeToTarget(target: Funil | null | undefined): { sourceHandle: string; targetHandle: string } {
+  if (!target) return { sourceHandle: "out", targetHandle: "in" };
+  if (target.status === "Descartado") return { sourceHandle: "under-out", targetHandle: "under-in" };
+  // Pausado: conexão vertical (cima → baixo)
+  if (target.status === "Pausado") return { sourceHandle: "under-out", targetHandle: "under-in" };
+  return { sourceHandle: "out", targetHandle: "in" };
 }
 
 /** Cadeia padrão por ordem de tipo (só usada ao materializar remoção legada). */
@@ -203,7 +219,9 @@ function layoutFlowStripLR(nodes: FunnelFlowNode[], edges: Edge[]): FunnelFlowNo
   const funById = new Map(nodes.map((n) => [n.id, n.data.funil]));
   const order = orderNodesForFunnelStrip(ids, edges, funById);
   const GAP_X = 44;
-  const posById = new Map(order.map((id, i) => [id, i * (NODE_W + GAP_X)]));
+  const totalW = Math.max(0, (order.length - 1) * (NODE_W + GAP_X));
+  const shiftX = -totalW / 2;
+  const posById = new Map(order.map((id, i) => [id, i * (NODE_W + GAP_X) + shiftX]));
   return nodes.map((n) => ({
     ...n,
     position: {
@@ -213,11 +231,154 @@ function layoutFlowStripLR(nodes: FunnelFlowNode[], edges: Edge[]): FunnelFlowNo
   }));
 }
 
+/** Cor da linha: Descartado > Em teste (laranja) > cor do source. */
+function edgeStrokeColor(source: Funil | undefined, target: Funil | undefined): string {
+  if (source?.status === "Descartado" || target?.status === "Descartado") {
+    return STATUS_STROKE["Descartado"];
+  }
+  if (source?.status === "Em teste" || target?.status === "Em teste") {
+    return STATUS_STROKE["Em teste"];
+  }
+  if (source) return STATUS_STROKE[source.status] || "#94a3b8";
+  return "#94a3b8";
+}
+
+function isDefaultRightEdge(handles: { sourceHandle: string; targetHandle: string }): boolean {
+  return handles.sourceHandle === "out" && handles.targetHandle === "in";
+}
+
+function edgeShouldAnimate(
+  source: Funil | undefined,
+  target: Funil | undefined,
+  handles: { sourceHandle: string; targetHandle: string }
+): boolean {
+  if (!isDefaultRightEdge(handles)) return false;
+  return (
+    source?.status === "Ativo" ||
+    source?.status === "Em teste" ||
+    target?.status === "Ativo" ||
+    target?.status === "Em teste"
+  );
+}
+
+/**
+ * Layout em árvore a partir das conexões `nextIds`: Oferta (principal) à esquerda,
+ * filhos à direita; vários filhos do mesmo pai empilhados verticalmente; netos seguem o mesmo padrão.
+ */
+function layoutOfferTree(nodes: FunnelFlowNode[], group: Funil[]): FunnelFlowNode[] {
+  const groupIdSet = new Set(group.map((f) => f.id));
+  const children = new Map<string, string[]>();
+  const incoming = new Map<string, number>();
+  for (const f of group) {
+    incoming.set(f.id, 0);
+  }
+  for (const f of group) {
+    const ch: string[] = [];
+    for (const tid of f.nextIds || []) {
+      if (!groupIdSet.has(tid) || tid === f.id) continue;
+      ch.push(tid);
+      incoming.set(tid, (incoming.get(tid) || 0) + 1);
+    }
+    children.set(f.id, ch);
+  }
+
+  const roots = group
+    .filter((f) => (incoming.get(f.id) || 0) === 0)
+    .sort((a, b) => {
+      if (a.tipo === "Oferta" && b.tipo !== "Oferta") return -1;
+      if (b.tipo === "Oferta" && a.tipo !== "Oferta") return 1;
+      return compareFunilFlowOrder(a, b);
+    });
+
+  const COL_W = NODE_W + 52;
+  const GAP_Y = 32;
+  const unitY = NODE_H + GAP_Y;
+  const positions = new Map<string, { x: number; y: number }>();
+  let nextLeafY = 0;
+  const visiting = new Set<string>();
+
+  function dfs(u: string, depth: number): number {
+    if (visiting.has(u)) {
+      const y = nextLeafY;
+      nextLeafY += unitY;
+      positions.set(u, { x: depth * COL_W, y });
+      return y + NODE_H / 2;
+    }
+    visiting.add(u);
+    const ch = (children.get(u) || []).filter((id) => groupIdSet.has(id));
+    let center: number;
+    if (ch.length === 0) {
+      const y = nextLeafY;
+      nextLeafY += unitY;
+      positions.set(u, { x: depth * COL_W, y });
+      center = y + NODE_H / 2;
+    } else {
+      const centers: number[] = [];
+      for (const v of ch) {
+        centers.push(dfs(v, depth + 1));
+      }
+      if (positions.has(u)) {
+        const p = positions.get(u)!;
+        center = p.y + NODE_H / 2;
+      } else {
+        const mid = (centers[0] + centers[centers.length - 1]) / 2;
+        positions.set(u, { x: depth * COL_W, y: mid - NODE_H / 2 });
+        center = mid;
+      }
+    }
+    visiting.delete(u);
+    return center;
+  }
+
+  for (const r of roots) {
+    dfs(r.id, 0);
+  }
+
+  for (const f of group) {
+    if (!positions.has(f.id)) {
+      const y = nextLeafY;
+      nextLeafY += unitY;
+      positions.set(f.id, { x: 0, y });
+    }
+  }
+
+  const laid = nodes.map((n) => {
+    const p = positions.get(n.id) ?? { x: 0, y: 0 };
+    return { ...n, position: { x: p.x, y: p.y } };
+  });
+
+  if (laid.length === 0) return laid;
+  const minX = Math.min(...laid.map((n) => n.position.x));
+  const maxX = Math.max(...laid.map((n) => n.position.x + NODE_W));
+  const shiftX = -(minX + maxX) / 2;
+  return laid.map((n) => ({
+    ...n,
+    position: { x: n.position.x + shiftX, y: n.position.y },
+  }));
+}
+
+function findOfferRoot(group: Funil[]): Funil | null {
+  return group.find((x) => x.tipo === "Oferta") || null;
+}
+
+function layoutOfferTreeAnchored(nodes: FunnelFlowNode[], group: Funil[]): FunnelFlowNode[] {
+  const laid = layoutOfferTree(nodes, group);
+  const root = findOfferRoot(group);
+  if (!root) return laid;
+  if (typeof root.posX !== "number" || typeof root.posY !== "number") return laid;
+  const laidRoot = laid.find((n) => n.id === root.id) || null;
+  if (!laidRoot) return laid;
+  const dx = root.posX - laidRoot.position.x;
+  const dy = root.posY - laidRoot.position.y;
+  return laid.map((n) => ({ ...n, position: { x: n.position.x + dx, y: n.position.y + dy } }));
+}
+
 export type FunnelNodeData = {
   funil: Funil;
   groupLabel: string;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onQuickCreate?: (args: { preset: Partial<Funil>; connectFromId?: string }) => void;
 };
 
 type FunnelFlowNode = Node<FunnelNodeData, "funnel">;
@@ -226,7 +387,9 @@ function FunnelNode({ data }: NodeProps<FunnelFlowNode>) {
   const f = data.funil;
   const stroke = STATUS_STROKE[f.status] || "#94a3b8";
   const bgColor =
-    f.status === "Em teste"
+    f.status === "Descartado"
+      ? "#fef2f2"
+      : f.status === "Em teste"
       ? "#fffbeb"
       : f.status === "Pausado"
       ? "#f8fafc"
@@ -243,9 +406,12 @@ function FunnelNode({ data }: NodeProps<FunnelFlowNode>) {
         border: `2px solid ${stroke}`,
         boxShadow: "0 2px 12px rgba(0,0,0,0.07)",
         fontSize: 12,
+        position: "relative",
       }}
     >
-      <Handle type="target" position={Position.Left} />
+      {/* Apenas 1 entrada na esquerda (padrão) + 1 entrada por cima (para conexões por baixo). */}
+      <Handle id="in" type="target" position={Position.Left} style={{ top: "50%" }} />
+      <Handle id="under-in" type="target" position={Position.Top} style={{ left: "50%" }} />
       <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text4)", marginBottom: 4 }}>
         {data.groupLabel}
       </div>
@@ -277,7 +443,64 @@ function FunnelNode({ data }: NodeProps<FunnelFlowNode>) {
           Excluir
         </button>
       </div>
-      <Handle type="source" position={Position.Right} />
+      {/* Fluxo principal: saída à direita; Descartado/Pausado: saída por baixo */}
+      <Handle id="out" type="source" position={Position.Right} style={{ top: "50%" }} />
+      <Handle id="under-out" type="source" position={Position.Bottom} style={{ left: "50%" }} />
+      {data.onQuickCreate && (
+        <div
+          style={{
+            position: "absolute",
+            right: 8,
+            top: "50%",
+            transform: "translateY(-50%)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            zIndex: 20,
+            pointerEvents: "auto",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            title="Criar Lead e conectar"
+            style={{ padding: "4px 8px" }}
+            onClick={() =>
+              data.onQuickCreate?.({
+                connectFromId: f.id,
+                preset: {
+                  tipo: "Lead",
+                  oferta: f.tipo === "Oferta" ? f.codigo : f.oferta,
+                  pais: f.pais,
+                  checkout: f.checkout,
+                },
+              })
+            }
+          >
+            +Leads
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            title="Criar Upsell e conectar"
+            style={{ padding: "4px 8px" }}
+            onClick={() =>
+              data.onQuickCreate?.({
+                connectFromId: f.id,
+                preset: {
+                  tipo: "Upsell",
+                  oferta: f.tipo === "Oferta" ? f.codigo : f.oferta,
+                  pais: f.pais,
+                  checkout: f.checkout,
+                },
+              })
+            }
+          >
+            +Upsell
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -287,7 +510,8 @@ const nodeTypes: NodeTypes = { funnel: FunnelNode };
 function buildFlowElements(
   funis: Funil[],
   onEdit: (id: string) => void,
-  onDelete: (id: string) => void
+  onDelete: (id: string) => void,
+  onQuickCreate?: (args: { preset: Partial<Funil>; connectFromId?: string }) => void
 ): { nodes: FunnelFlowNode[]; edges: Edge[] } {
   const groups = groupFunis(funis);
   const nodes: FunnelFlowNode[] = [];
@@ -297,7 +521,7 @@ function buildFlowElements(
   for (const group of groups) {
     const label = groupKey(group[0]);
     const anyNextIds = group.some((f) => (f.nextIds?.length || 0) > 0);
-    const hasAnySavedPos = group.some(
+    const allHaveSavedPos = group.every(
       (f) => typeof f.posX === "number" && typeof f.posY === "number"
     );
     const groupNodes: FunnelFlowNode[] = group.map((f) => ({
@@ -308,8 +532,9 @@ function buildFlowElements(
         groupLabel: label,
         onEdit,
         onDelete,
+        onQuickCreate,
       },
-      position: hasAnySavedPos
+      position: allHaveSavedPos
         ? { x: f.posX ?? 0, y: f.posY ?? 0 }
         : { x: 0, y: 0 },
     }));
@@ -330,13 +555,17 @@ function buildFlowElements(
       for (const f of group) {
         for (const targetId of f.nextIds || []) {
           if (targetId === f.id) continue;
-          const edgeColor = STATUS_STROKE[f.status] || "#94a3b8";
+          const target = funis.find((r) => r.id === targetId) || null;
+          const handles = handlesForEdgeToTarget(target);
+          const edgeColor = edgeStrokeColor(f, target ?? undefined);
           pushDeduped({
             id: `e-${f.id}-${targetId}`,
             type: "deletable",
             source: f.id,
             target: targetId,
-            animated: f.status === "Ativo",
+            sourceHandle: handles.sourceHandle,
+            targetHandle: handles.targetHandle,
+            animated: edgeShouldAnimate(f, target ?? undefined, handles),
             style: { stroke: edgeColor, strokeWidth: 2 },
           });
         }
@@ -347,18 +576,28 @@ function buildFlowElements(
     for (const f of group) {
       const vTarget = resolveVinculoTarget(funis, f);
       if (!vTarget) continue;
-      const edgeColor = STATUS_STROKE[f.status] || "#94a3b8";
+      if (!shouldDrawVinculoEdge(f, vTarget)) continue;
+      const handles = handlesForEdgeToTarget(vTarget);
+      const edgeColor = edgeStrokeColor(f, vTarget);
       pushDeduped({
         id: `e-vinc-${f.id}-${vTarget.id}`,
         type: "deletable",
         source: f.id,
         target: vTarget.id,
-        animated: f.status === "Ativo",
+        sourceHandle: handles.sourceHandle,
+        targetHandle: handles.targetHandle,
+        animated: edgeShouldAnimate(f, vTarget, handles),
         style: { stroke: edgeColor, strokeWidth: 2 },
       });
     }
 
-    const laid = (hasAnySavedPos ? groupNodes : layoutFlowStripLR(groupNodes, groupEdges)) as FunnelFlowNode[];
+    const laid = (
+      allHaveSavedPos
+        ? groupNodes
+        : anyNextIds
+          ? layoutOfferTreeAnchored(groupNodes, group)
+          : layoutFlowStripLR(groupNodes, groupEdges)
+    ) as FunnelFlowNode[];
     const ys = laid.map((n) => n.position.y);
     const minY = Math.min(...ys);
     const maxY = Math.max(...laid.map((n) => n.position.y + NODE_H));
@@ -381,14 +620,37 @@ function FlowInner({
   funis,
   onEdit,
   onDelete,
+  onQuickCreate,
 }: {
   funis: Funil[];
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onQuickCreate?: (args: {
+    preset: Partial<Funil>;
+    connectFromId?: string;
+    sourceCanvasX?: number;
+    sourceCanvasY?: number;
+  }) => void;
 }) {
 
   // Overrides locais para UX instantânea (não depende do refresh do db no pai)
   const [overrides, setOverrides] = useState<Record<string, Partial<Funil>>>({});
+  const [expandedOffers, setExpandedOffers] = useState<Set<string>>(() => new Set());
+
+  // Usa getNode do React Flow para capturar a posição real do nó no canvas ao clicar +Lead/+Upsell
+  const { getNode } = useReactFlow();
+  const handleNodeQuickCreate = useCallback(
+    (args: { preset: Partial<Funil>; connectFromId?: string }) => {
+      if (!onQuickCreate) return;
+      const nodePos = args.connectFromId ? getNode(args.connectFromId)?.position : undefined;
+      onQuickCreate({
+        ...args,
+        sourceCanvasX: nodePos?.x,
+        sourceCanvasY: nodePos?.y,
+      });
+    },
+    [onQuickCreate, getNode]
+  );
 
   const funisView = useMemo(() => {
     if (!funis.length) return funis;
@@ -397,6 +659,26 @@ function FlowInner({
       return ov ? ({ ...f, ...ov } as Funil) : f;
     });
   }, [funis, overrides]);
+
+  // Ofertas colapsadas: NÃO removemos nós do estado (isso reseta posições).
+  // Em vez disso, vamos marcar nós/arestas como `hidden` na renderização.
+  const hiddenByOffer = useMemo(() => {
+    const groups = groupFunis(funisView);
+    const hiddenIds = new Set<string>();
+    const offerById = new Map<string, string>(); // funilId -> ofertaId
+
+    for (const g of groups) {
+      const oferta = g.find((x) => x.tipo === "Oferta") || null;
+      if (!oferta) continue;
+      for (const f of g) offerById.set(f.id, oferta.id);
+      if (!expandedOffers.has(oferta.id)) {
+        for (const f of g) {
+          if (f.id !== oferta.id) hiddenIds.add(f.id);
+        }
+      }
+    }
+    return { hiddenIds, offerById };
+  }, [funisView, expandedOffers]);
 
   const isCustomFlow = useMemo(() => {
     return funisView.some((f) => (f.nextIds?.length || 0) > 0);
@@ -566,18 +848,24 @@ function FlowInner({
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   useEffect(() => {
-    const built = buildFlowElements(funisView, onEdit, onDelete);
+    const built = buildFlowElements(funisView, onEdit, onDelete, handleNodeQuickCreate);
     // Preserva posição ao filtrar; arestas vêm só do modelo (nextIds / cadeia) — evita reaparecer após remover.
     setNodes((prev) => {
       const byId = new Map(prev.map((n) => [n.id, n]));
       return built.nodes.map((n) => {
         const old = byId.get(n.id);
-        if (!old) return n;
-        return { ...n, position: old.position };
+        const position = old?.position || n.position;
+        const hidden = hiddenByOffer.hiddenIds.has(n.id);
+        return { ...n, position, hidden };
       });
     });
-    setEdges(built.edges);
-  }, [funisView, onEdit, onDelete, setNodes, setEdges]);
+    setEdges(
+      built.edges.map((e) => {
+        const hidden = hiddenByOffer.hiddenIds.has(e.source) || hiddenByOffer.hiddenIds.has(e.target);
+        return { ...e, hidden };
+      })
+    );
+  }, [funisView, onEdit, onDelete, handleNodeQuickCreate, setNodes, setEdges, hiddenByOffer]);
 
   const isValidConnection = useCallback((edge: Connection | Edge) => {
     return Boolean(edge.source && edge.target && edge.source !== edge.target);
@@ -588,15 +876,19 @@ function FlowInner({
       if (!connection.source || !connection.target || connection.source === connection.target) return;
 
       const srcFunil = funisView.find((f) => f.id === connection.source);
-      const edgeColor = srcFunil ? (STATUS_STROKE[srcFunil.status] || "#94a3b8") : "#3b82f6";
+      const tgtFunil = funisView.find((f) => f.id === connection.target);
+      const handles = handlesForEdgeToTarget(tgtFunil);
+      const edgeColor = edgeStrokeColor(srcFunil, tgtFunil);
 
       setEdges((eds) =>
         addEdge(
           {
             ...connection,
+            sourceHandle: handles.sourceHandle,
+            targetHandle: handles.targetHandle,
             id: `e-${connection.source}-${connection.target}`,
             type: "deletable",
-            animated: srcFunil?.status === "Ativo",
+            animated: edgeShouldAnimate(srcFunil, tgtFunil, handles),
             style: { stroke: edgeColor, strokeWidth: 2 },
           },
           eds
@@ -654,9 +946,7 @@ function FlowInner({
         return next;
       });
       // Persiste no banco
-      await Promise.all(
-        funisView.map((f) => updateFunil(f.id, { nextIds: [], posX: null, posY: null }))
-      );
+      await Promise.all(funisView.map((f) => updateFunil(f.id, { nextIds: [], posX: null, posY: null })));
     } catch (e) {
       console.error("Falha ao resetar fluxo:", e);
     }
@@ -672,6 +962,16 @@ function FlowInner({
       isValidConnection={isValidConnection}
       onEdgesDelete={onEdgesDelete}
       onNodeDragStop={onNodeDragStop}
+      onNodeClick={(_e, node) => {
+        const f = (node as FunnelFlowNode).data?.funil;
+        if (f?.tipo !== "Oferta") return;
+        setExpandedOffers((prev) => {
+          const next = new Set(prev);
+          if (next.has(f.id)) next.delete(f.id);
+          else next.add(f.id);
+          return next;
+        });
+      }}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       minZoom={0.05}
@@ -712,15 +1012,22 @@ export default function FunisFlowCanvas({
   funis,
   onEdit,
   onDelete,
+  onQuickCreate,
 }: {
   funis: Funil[];
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onQuickCreate?: (args: {
+    preset: Partial<Funil>;
+    connectFromId?: string;
+    sourceCanvasX?: number;
+    sourceCanvasY?: number;
+  }) => void;
 }) {
   return (
     <div className="funis-flow-wrap">
       <ReactFlowProvider>
-        <FlowInner funis={funis} onEdit={onEdit} onDelete={onDelete} />
+        <FlowInner funis={funis} onEdit={onEdit} onDelete={onDelete} onQuickCreate={onQuickCreate} />
       </ReactFlowProvider>
     </div>
   );

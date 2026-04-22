@@ -459,7 +459,8 @@ body {
   height: 72vh;
   border: 1px solid var(--border);
   border-radius: 12px;
-  overflow: hidden;
+  /* Permite que botões/controles não sejam cortados */
+  overflow: visible;
   background: var(--bg);
 }
 

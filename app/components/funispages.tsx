@@ -69,24 +69,10 @@ export function BDPage({
       teste: db.filter((r) => r.tipo === "Oferta" && r.status === "Em teste").length,
       descartado: db.filter((r) => r.tipo === "Oferta" && r.status === "Descartado").length,
     },
-    Lead: {
-      total: db.filter((r) => r.tipo === "Lead").length,
-      ativo: db.filter((r) => r.tipo === "Lead" && r.status === "Ativo").length,
-      teste: db.filter((r) => r.tipo === "Lead" && r.status === "Em teste").length,
-      descartado: db.filter((r) => r.tipo === "Lead" && r.status === "Descartado").length,
-    },
-    Upsell: {
-      total: db.filter((r) => r.tipo === "Upsell").length,
-      ativo: db.filter((r) => r.tipo === "Upsell" && r.status === "Ativo").length,
-      teste: db.filter((r) => r.tipo === "Upsell" && r.status === "Em teste").length,
-      descartado: db.filter((r) => r.tipo === "Upsell" && r.status === "Descartado").length,
-    },
   };
 
   const tipoConfig: Record<string, { icon: string; color: string; bg: string; border: string }> = {
     Oferta: { icon: "🛒", color: "#1a56db", bg: "#eff4ff", border: "#1a56db" },
-    Lead: { icon: "📈", color: "#10b981", bg: "#ecfdf5", border: "#10b981" },
-    Upsell: { icon: "⬆️", color: "#f59e0b", bg: "#fffbeb", border: "#f59e0b" },
   };
 
   // Filtrar funis do tipo selecionado
@@ -128,7 +114,7 @@ export function BDPage({
         <div className="funnel-flow-container">
           {/* Cards dos 3 Tipos */}
           <div className="dashboard-cards-grid">
-            {["Oferta", "Lead", "Upsell"].map((tipo) => {
+            {["Oferta"].map((tipo) => {
               const config = tipoConfig[tipo];
               const stat = stats[tipo];
               return (
@@ -146,7 +132,7 @@ export function BDPage({
                       {config.icon}
                     </span>
                     <span className="dashboard-card-title" style={{ color: config.color }}>
-                      {tipo === "Oferta" ? "Ofertas / VSL" : tipo + "s"}
+                      {"Ofertas (com Leads/Upsell)"}
                     </span>
                   </div>
                   <div className="dashboard-card-total">{stat.total}</div>
@@ -371,8 +357,6 @@ export function AtivosPage({
   const tipoChips = [
     { val: "", label: "Todos" },
     { val: "Oferta", label: "Oferta / VSL" },
-    { val: "Lead", label: "Lead" },
-    { val: "Upsell", label: "Upsell" },
   ];
   const statusChips = [
     { val: "Ativo", label: "Ativo" },

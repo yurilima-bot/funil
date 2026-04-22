@@ -93,40 +93,19 @@ export default function FunilModal({
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  const vinculoAlvo = useMemo(() => {
-    const c = (form.oferta || "").trim().toUpperCase();
-    if (!c) return null;
-    return allFunis.find((f) => f.codigo === c && f.id !== editingId) ?? null;
-  }, [form.oferta, allFunis, editingId]);
-
-  const vinculoOptions = useMemo(() => {
-    const t = form.tipo as Funil["tipo"];
-    if (!t) return [];
+  // "oferta" agora representa a Oferta (pai) do step (Lead/Upsell ficam dentro da Oferta).
+  const ofertaPaiOptions = useMemo(() => {
     return allFunis
-      .filter(
-        (f) =>
-          f.tipo === t &&
-          f.id !== editingId &&
-          f.status === "Ativo"
-      )
+      .filter((f) => f.tipo === "Oferta" && f.id !== editingId)
       .slice()
       .sort((a, b) => (a.codigo || "").localeCompare(b.codigo || ""));
-  }, [allFunis, form.tipo, editingId]);
+  }, [allFunis, editingId]);
 
   const tipoColor = tipoColors[form.tipo || "Oferta"];
 
-  /** Linked step exists and is active or in test — relevant only during creation */
-  const vinculoAtivo =
-    mode === "create" &&
-    vinculoAlvo &&
-    (vinculoAlvo.status === "Ativo" || vinculoAlvo.status === "Em teste");
+  const needsOfertaPai = form.tipo === "Lead" || form.tipo === "Upsell";
 
-  /**
-   * Auto-pause rule:
-   * - New step "Ativo" → pause the linked (it becomes the only active)
-   * - New step "Em teste" → keep the linked running, both coexist
-   */
-  const autoPauseLinked = vinculoAtivo && form.status === "Ativo";
+  const isChildQuickCreate = form.tipo === "Lead" || form.tipo === "Upsell";
 
   function handleTipoChange(tipo: string) {
     onChange("tipo", tipo);
@@ -139,6 +118,8 @@ export default function FunilModal({
       };
       onChange("codigo", sugestoes[tipo] || "");
     }
+    // Ao trocar para Oferta, limpa o campo de oferta (pai), pois ela é o root.
+    if (tipo === "Oferta") onChange("oferta", "");
   }
 
   return (
@@ -183,23 +164,8 @@ export default function FunilModal({
           </button>
         </div>
 
-        {/* Visual do Fluxo do Funil */}
-        <div className="funnel-flow-preview">
-          <div className="flow-step-mini lead">
-            <div className={`step-icon ${form.tipo === "Lead" ? "active" : ""}`}>📈</div>
-            <span>Lead</span>
-          </div>
-          <div className="flow-arrow-mini">→</div>
-          <div className="flow-step-mini oferta">
-            <div className={`step-icon ${form.tipo === "Oferta" ? "active" : ""}`}>🛒</div>
-            <span>Oferta</span>
-          </div>
-          <div className="flow-arrow-mini">→</div>
-          <div className="flow-step-mini upsell">
-            <div className={`step-icon ${form.tipo === "Upsell" ? "active" : ""}`}>⬆️</div>
-            <span>Upsell</span>
-          </div>
-        </div>
+        {/* Fluxo (sem ícones) */}
+     
 
         {/* Formulário organizado em seções */}
         <div className="modal-body">
@@ -212,28 +178,27 @@ export default function FunilModal({
             <div className="form-grid">
               <div className="form-group">
                 <label>Tipo do Step *</label>
-                <div className="tipo-selector">
-                  {["Lead", "Oferta", "Upsell"].map((tipo) => (
-                    <button
-                      key={tipo}
-                      type="button"
-                      className={`tipo-option ${form.tipo === tipo ? "active" : ""}`}
-                      onClick={() => handleTipoChange(tipo)}
-                      style={{
-                        background: form.tipo === tipo ? tipoColors[tipo]?.bg : "#fff",
-                        borderColor: form.tipo === tipo ? tipoColors[tipo]?.border : "#e5e7eb",
-                        color: form.tipo === tipo ? tipoColors[tipo]?.text : "#6b7280",
-                      }}
-                    >
-                      <span className="tipo-icon">
-                        {tipo === "Lead" && "📈"}
-                        {tipo === "Oferta" && "🛒"}
-                        {tipo === "Upsell" && "⬆️"}
-                      </span>
-                      {tipo === "Oferta" ? "Oferta / VSL" : tipo}
-                    </button>
-                  ))}
-                </div>
+                {isChildQuickCreate ? (
+                  <input type="text" value={form.tipo || ""} disabled />
+                ) : (
+                  <div className="tipo-selector">
+                    {["Oferta"].map((tipo) => (
+                      <button
+                        key={tipo}
+                        type="button"
+                        className={`tipo-option ${form.tipo === tipo ? "active" : ""}`}
+                        onClick={() => handleTipoChange(tipo)}
+                        style={{
+                          background: form.tipo === tipo ? tipoColors[tipo]?.bg : "#fff",
+                          borderColor: form.tipo === tipo ? tipoColors[tipo]?.border : "#e5e7eb",
+                          color: form.tipo === tipo ? tipoColors[tipo]?.text : "#6b7280",
+                        }}
+                      >
+                        {tipo}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
@@ -380,7 +345,7 @@ export default function FunilModal({
               </div>
 
               <div className="form-group">
-                <label>Vincular a outro step</label>
+                <label>{needsOfertaPai ? "Oferta (pai) *" : "Oferta (pai)"}</label>
                 {!form.tipo ? (
                   <p className="form-hint" style={{ margin: 0 }}>
                     Escolha o tipo do step acima para listar os vínculos possíveis.
@@ -390,53 +355,21 @@ export default function FunilModal({
                     <select
                       value={(form.oferta || "").trim().toUpperCase()}
                       onChange={(e) => onChange("oferta", e.target.value)}
-                      disabled={!vinculoOptions.length}
+                      disabled={form.tipo === "Oferta"}
                     >
-                      <option value="">Não vinculado</option>
-                      {vinculoOptions.map((f) => (
+                      <option value="">
+                        {form.tipo === "Oferta" ? "Oferta é o step principal" : "Selecionar oferta..."}
+                      </option>
+                      {ofertaPaiOptions.map((f) => (
                         <option key={f.id} value={f.codigo}>
                           {f.codigo} — {f.nome} ({f.status})
                         </option>
                       ))}
                     </select>
-                    {form.tipo && !vinculoOptions.length && (
-                      <div className="form-hint">Não há outro step do tipo «{form.tipo}» para vincular.</div>
-                    )}
-                    {vinculoAtivo && (
-                      <div
-                        style={{
-                          marginTop: 10,
-                          padding: "10px 12px",
-                          borderRadius: 8,
-                          border: `1px solid ${autoPauseLinked ? "#fca5a5" : "#86efac"}`,
-                          background: autoPauseLinked ? "#fff1f2" : "#f0fdf4",
-                          display: "flex",
-                          gap: 10,
-                          alignItems: "flex-start",
-                        }}
-                      >
-                        <span style={{ fontSize: 16, marginTop: 1 }}>
-                          {autoPauseLinked ? "⏸" : "🧪"}
-                        </span>
-                        <div style={{ fontSize: 11, lineHeight: 1.5, color: autoPauseLinked ? "#991b1b" : "#166534" }}>
-                          {autoPauseLinked ? (
-                            <>
-                              <strong>{vinculoAlvo!.codigo}</strong> será pausado automaticamente.
-                              Este novo step ficará como o único <strong>Ativo</strong>.
-                            </>
-                          ) : (
-                            <>
-                              <strong>{vinculoAlvo!.codigo}</strong> continuará <strong>{vinculoAlvo!.status}</strong>.
-                              Este novo step será criado como <strong>Em teste</strong>, ambos rodam juntos.
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )}
                     <div className="form-hint">
-                      Somente steps <strong>Ativos</strong> (mesmo tipo:{" "}
-                      {form.tipo === "Oferta" ? "ofertas" : form.tipo === "Lead" ? "leads" : "upsells"}). Descartados,
-                      pausados e em teste não aparecem na lista.
+                      {form.tipo === "Oferta"
+                        ? "Oferta é o step principal. Leads e Upsells ficam dentro dela."
+                        : "Escolha a Oferta onde este step vai ficar. Depois, conecte os steps no canvas (ex: Oferta → Lead → Lead)."}
                     </div>
                   </>
                 )}
@@ -518,9 +451,16 @@ export default function FunilModal({
             <button 
               className="btn btn-primary" 
               onClick={() => {
-                onSave(autoPauseLinked ? vinculoAlvo!.id : undefined);
+                onSave(undefined);
               }}
-              disabled={!form.tipo || !form.codigo || !form.nome || !form.pais || !form.status}
+              disabled={
+                !form.tipo ||
+                !form.codigo ||
+                !form.nome ||
+                !form.pais ||
+                !form.status ||
+                (needsOfertaPai && !(form.oferta || "").trim())
+              }
             >
               {mode === "create" ? "✓ Criar Step" : "✓ Atualizar Step"}
             </button>

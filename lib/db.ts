@@ -93,17 +93,20 @@ export async function updateFunil(id: string, funil: Partial<Funil>): Promise<Fu
   }
 }
 
-export async function deleteFunil(id: string): Promise<boolean> {
+export type DeleteFunilResult = { ok: boolean; error?: string };
+
+export async function deleteFunil(id: string): Promise<DeleteFunilResult> {
   try {
     const supabase = getSupabaseClient();
-    if (!supabase) throw new Error("Supabase não configurado");
+    if (!supabase) return { ok: false, error: "Supabase não configurado" };
     const { error } = await supabase.from("funis").delete().eq("id", id);
 
-    if (error) throw error;
-    return true;
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
   } catch (error) {
-    console.error("Erro ao deletar funil:", error);
-    return false;
+    const msg = error instanceof Error ? error.message : JSON.stringify(error);
+    console.error("Erro ao deletar funil:", msg, error);
+    return { ok: false, error: msg };
   }
 }
 

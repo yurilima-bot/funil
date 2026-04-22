@@ -104,9 +104,7 @@ const overviewNodeTypes: NodeTypes = { "overview-hub": OverviewHubNode };
 
 function buildOverviewElements(db: Funil[]): { nodes: OverviewHubNode[]; edges: Edge[] } {
   const tipos = [
-    { tipo: "Lead", label: "Leads", icon: "📈", color: "#10b981", x: -380 },
-    { tipo: "Oferta", label: "Ofertas / VSL", icon: "🛒", color: "#1a56db", x: 0 },
-    { tipo: "Upsell", label: "Upsell", icon: "⬆️", color: "#f59e0b", x: 380 },
+    { tipo: "Oferta", label: "Ofertas (com Leads/Upsell)", icon: "🛒", color: "#1a56db", x: 0 },
   ];
 
   const nodes: OverviewHubNode[] = tipos.map(({ tipo, label, icon, color, x }) => ({
@@ -129,30 +127,7 @@ function buildOverviewElements(db: Funil[]): { nodes: OverviewHubNode[]; edges: 
     },
   }));
 
-  const edges: Edge[] = [
-    {
-      id: "e-lead-oferta",
-      source: "overview-hub-Lead",
-      target: "overview-hub-Oferta",
-      type: "smoothstep",
-      animated: true,
-      style: { stroke: "#10b981", strokeWidth: 2.5 },
-      label: "captação",
-      labelStyle: { fontSize: 10, fontWeight: 700, fill: "#10b981" },
-      labelBgStyle: { fill: "#f0fdf4" },
-    },
-    {
-      id: "e-oferta-upsell",
-      source: "overview-hub-Oferta",
-      target: "overview-hub-Upsell",
-      type: "smoothstep",
-      animated: true,
-      style: { stroke: "#1a56db", strokeWidth: 2.5 },
-      label: "conversão",
-      labelStyle: { fontSize: 10, fontWeight: 700, fill: "#1a56db" },
-      labelBgStyle: { fill: "#eff4ff" },
-    },
-  ];
+  const edges: Edge[] = [];
 
   return { nodes, edges };
 }
